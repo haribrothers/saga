@@ -144,8 +144,32 @@ export class ContextManager {
         return results;
     }
 
+    /** Stores free-form typed text as an inline context file (F24). */
+    async addInlineContext(text: string): Promise<ContextEntry | undefined> {
+        const registry = await readContextRegistry(this.sagaRoot);
+        const existingInline = registry.entries.filter((e) => e.filename.startsWith('inline-'));
+        const nextNum = String(existingInline.length + 1).padStart(3, '0');
+        const filename = `inline-${nextNum}.md`;
+
+        const destUri = vscode.Uri.joinPath(getContextDir(this.sagaRoot), filename);
+        const firstLine = text.split('\n')[0].slice(0, 80);
+        const content = `<!-- saga:inline-context -->\n${text}`;
+        await vscode.workspace.fs.writeFile(destUri, Buffer.from(content, 'utf-8'));
+
+        const entry: ContextEntry = {
+            path: destUri.fsPath,
+            filename,
+            role: 'reference',
+            added_at: new Date().toISOString(),
+            char_count: text.length,
+        };
+        void firstLine; // used as display hint in tree (filename already descriptive)
+        registry.entries.push(entry);
+        await writeContextRegistry(this.sagaRoot, registry);
+        return entry;
+    }
+
     private uniqueFilename(basename: string): string {
-        // Prepend timestamp to avoid collisions when two files share a name.
         const ts = Date.now();
         const ext = path.extname(basename);
         const stem = path.basename(basename, ext);

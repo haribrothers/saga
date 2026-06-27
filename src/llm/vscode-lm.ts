@@ -15,7 +15,16 @@ import type {
  */
 export class VsCodeLmProvider implements LLMProvider {
     readonly id = 'vscode-lm';
-    readonly displayName = 'VS Code LM (Copilot)';
+    readonly displayName: string;
+
+    constructor(
+        /** Optional model ID hint (e.g. "copilot/claude-sonnet"). When set, selectModel prefers it. */
+        private readonly preferredModelId?: string,
+    ) {
+        this.displayName = preferredModelId
+            ? `VS Code LM (${preferredModelId})`
+            : 'VS Code LM (Copilot)';
+    }
 
     async isAvailable(): Promise<boolean> {
         try {
@@ -91,10 +100,21 @@ export class VsCodeLmProvider implements LLMProvider {
                 'No Copilot language models available. Make sure GitHub Copilot is installed and signed in.',
             );
         }
-        // Prefer Claude families if present; otherwise take the first available.
-        const preferred = models.find((m) =>
-            m.family.toLowerCase().includes('claude'),
-        );
+
+        // 1. Exact match on user-configured model ID (format: "vendor/family" or just family)
+        if (this.preferredModelId) {
+            const [vendor, family] = this.preferredModelId.includes('/')
+                ? this.preferredModelId.split('/', 2)
+                : [undefined, this.preferredModelId];
+            const exact = models.find((m) =>
+                (!vendor || m.vendor.toLowerCase() === vendor.toLowerCase()) &&
+                m.family.toLowerCase().includes((family ?? '').toLowerCase()),
+            );
+            if (exact) { return exact; }
+        }
+
+        // 2. Prefer Claude families; otherwise take the first available.
+        const preferred = models.find((m) => m.family.toLowerCase().includes('claude'));
         return preferred ?? models[0];
     }
 }

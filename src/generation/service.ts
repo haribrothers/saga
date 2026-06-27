@@ -2,7 +2,7 @@ import * as yaml from 'yaml';
 import { z } from 'zod';
 import { LLMProvider } from '../llm/provider';
 import { Epic, EpicSchema, Story, StorySchema, ContextEntry } from '../schema';
-import { buildEpicGenPrompt, buildStoryGenPrompt } from './prompts';
+import { buildEpicGenPrompt, buildStoryGenPrompt, buildEpicRefinePrompt, buildStoryRefinePrompt } from './prompts';
 
 const MAX_RETRIES = 2;
 
@@ -33,8 +33,9 @@ export class GenerationService {
     async generateEpics(
         context: Array<ContextEntry & { text: string }>,
         startId: string,
+        additionalInstructions = '',
     ): Promise<Epic[]> {
-        const prompt = buildEpicGenPrompt(context, startId);
+        const prompt = buildEpicGenPrompt(context, startId, 2, 8, additionalInstructions);
         const rawYaml = await this.callWithRetry(prompt, 'epic');
         return this.parseEpicList(rawYaml);
     }
@@ -47,10 +48,48 @@ export class GenerationService {
         epic: Pick<Epic, 'id' | 'title' | 'description'>,
         context: Array<ContextEntry & { text: string }>,
         startId: string,
+        additionalInstructions = '',
     ): Promise<Story[]> {
-        const prompt = buildStoryGenPrompt(epic, context, startId);
+        const prompt = buildStoryGenPrompt(epic, context, startId, 3, 8, additionalInstructions);
         const rawYaml = await this.callWithRetry(prompt, 'story');
         return this.parseStoryList(rawYaml, epic.id);
+    }
+
+    /**
+     * Refine existing epics based on user instructions.
+     * Returns updated epics; does NOT write to disk.
+     */
+    async refineEpics(epics: Epic[], instructions: string): Promise<Epic[]> {
+        const prompt = buildEpicRefinePrompt(
+            epics.map((e) => ({ id: e.id, title: e.title, description: e.description ?? '' })),
+            instructions,
+        );
+        const rawYaml = await this.callWithRetry(prompt, 'epic');
+        return this.parseEpicList(rawYaml);
+    }
+
+    /**
+     * Refine existing stories based on user instructions (e.g. fixing INVEST issues).
+     * Returns updated stories; does NOT write to disk.
+     */
+    async refineStories(stories: Story[], instructions: string): Promise<Story[]> {
+        if (stories.length === 0) { return []; }
+        const epicId = stories[0].epic;
+        const prompt = buildStoryRefinePrompt(
+            stories.map((s) => ({
+                id: s.id,
+                title: s.title,
+                epic: s.epic,
+                as_a: s.as_a,
+                i_want: s.i_want,
+                so_that: s.so_that,
+                acceptance_criteria: s.acceptance_criteria,
+                invest: s.invest as Record<string, { result: string; reason: string }> | undefined,
+            })),
+            instructions,
+        );
+        const rawYaml = await this.callWithRetry(prompt, 'story');
+        return this.parseStoryList(rawYaml, epicId);
     }
 
     // ─── Private ──────────────────────────────────────────────────────────────

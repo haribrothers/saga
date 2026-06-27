@@ -40,8 +40,12 @@ export function buildEpicGenPrompt(
     startId: string,
     minEpics = 2,
     maxEpics = 8,
+    additionalInstructions = '',
 ): string {
-    return EPIC_GEN_TEMPLATE({ context, startId, minEpics, maxEpics });
+    const base = EPIC_GEN_TEMPLATE({ context, startId, minEpics, maxEpics });
+    return additionalInstructions.trim()
+        ? `${base}\n\n## Additional Instructions\n${additionalInstructions.trim()}`
+        : base;
 }
 
 // ─── Story generation prompt ──────────────────────────────────────────────────
@@ -116,6 +120,74 @@ export function buildStoryGenPrompt(
     startId: string,
     minStories = 3,
     maxStories = 8,
+    additionalInstructions = '',
 ): string {
-    return STORY_GEN_TEMPLATE({ epic, context, startId, minStories, maxStories });
+    const base = STORY_GEN_TEMPLATE({ epic, context, startId, minStories, maxStories });
+    return additionalInstructions.trim()
+        ? `${base}\n\n## Additional Instructions\n${additionalInstructions.trim()}`
+        : base;
+}
+
+// ─── Refine prompts ───────────────────────────────────────────────────────────
+
+export function buildEpicRefinePrompt(
+    epics: Array<{ id: string; title: string; description: string }>,
+    instructions: string,
+): string {
+    const epicList = epics.map((e) =>
+        `- id: ${e.id}\n  title: ${e.title}\n  description: |\n    ${e.description.replace(/\n/g, '\n    ')}`,
+    ).join('\n');
+
+    return `You are an expert agile coach. Refine the following epics based on the instructions below.
+Preserve each epic's ID. Return ONLY a YAML list — no prose, no markdown fences.
+
+## Current Epics
+${epicList}
+
+## Refinement Instructions
+${instructions}
+
+Return the full refined list in the same YAML format:
+- id: EPIC-001
+  type: epic
+  title: <title>
+  description: |
+    <description>
+  status: draft
+  labels: []`;
+}
+
+export function buildStoryRefinePrompt(
+    stories: Array<{
+        id: string; title: string; epic: string; as_a: string;
+        i_want: string; so_that: string; acceptance_criteria: string[];
+        invest?: Record<string, { result: string; reason: string }>;
+    }>,
+    instructions: string,
+): string {
+    const storyList = stories.map((s) => {
+        const investIssues = s.invest
+            ? Object.entries(s.invest)
+                .filter(([, v]) => v.result !== 'pass')
+                .map(([k, v]) => `  - ${k}: ${v.result} — ${v.reason}`)
+                .join('\n')
+            : '';
+        return `- id: ${s.id}
+  title: ${s.title}
+  as_a: ${s.as_a}
+  i_want: ${s.i_want}
+  so_that: ${s.so_that}${investIssues ? `\n  invest_issues:\n${investIssues}` : ''}`;
+    }).join('\n');
+
+    return `You are an expert agile coach. Refine the following user stories based on the instructions.
+Preserve each story's ID and epic linkage. Fix any INVEST issues listed. Return ONLY a YAML list — no prose, no markdown fences.
+
+## Current Stories
+${storyList}
+
+## Refinement Instructions
+${instructions}
+
+Return the full refined list in the same YAML format as story generation, including all fields (as_a, i_want, so_that, acceptance_criteria, invest, estimate, labels).
+Each story must keep its original id and epic value.`;
 }

@@ -48,6 +48,29 @@
         "category": "Saga"
       },
       {
+        "command": "saga.addInlineContext",
+        "title": "Saga: Add Inline Context",
+        "category": "Saga",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "saga.deleteEpic",
+        "title": "Saga: Delete Epic",
+        "category": "Saga",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "saga.deleteStory",
+        "title": "Saga: Delete Story",
+        "category": "Saga",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "saga.cleanUp",
+        "title": "Saga: Clean Up",
+        "category": "Saga"
+      },
+      {
         "command": "saga.openSettings",
         "title": "Saga: Open Settings",
         "category": "Saga",
@@ -97,6 +120,11 @@
           "group": "navigation"
         },
         {
+          "command": "saga.addInlineContext",
+          "when": "view == saga.contextView",
+          "group": "navigation"
+        },
+        {
           "command": "saga.generateEpics",
           "when": "view == saga.storiesView",
           "group": "navigation"
@@ -117,6 +145,16 @@
           "command": "saga.generateStoriesForEpic",
           "when": "viewItem == sagaEpic",
           "group": "inline"
+        },
+        {
+          "command": "saga.deleteEpic",
+          "when": "viewItem == sagaEpic",
+          "group": "saga@1"
+        },
+        {
+          "command": "saga.deleteStory",
+          "when": "viewItem == sagaStory",
+          "group": "saga@1"
         }
       ],
       "explorer/context": [
