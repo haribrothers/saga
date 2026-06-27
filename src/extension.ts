@@ -10,6 +10,7 @@ import { GenerationService } from './generation/service';
 import { InvestValidator } from './invest/validator';
 import { SagaTreeProvider, ContextTreeProvider } from './tree/saga-tree';
 import { StoryPanel } from './webview/story-panel';
+import { SettingsPanel } from './webview/settings-panel';
 
 export function activate(context: vscode.ExtensionContext) {
     const secrets = new SecretsManager(context.secrets);
@@ -317,6 +318,13 @@ export function activate(context: vscode.ExtensionContext) {
         },
     );
 
+    // ── saga.openSettings ──────────────────────────────────────────────────────
+    const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) {return;}
+        await SettingsPanel.open(root, context.extensionUri, secrets);
+    });
+
     // ── saga.testGeneration (M0 smoke test — kept for dev) ────────────────────
     const testGenCmd = vscode.commands.registerCommand('saga.testGeneration', async () => {
         const root = requireRoot();
@@ -364,6 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
         generateStoriesCmd,
         validateStoriesCmd,
         openStoryCmd,
+        openSettingsCmd,
         testGenCmd,
     );
 }

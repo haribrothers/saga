@@ -48,6 +48,12 @@
         "category": "Saga"
       },
       {
+        "command": "saga.openSettings",
+        "title": "Saga: Open Settings",
+        "category": "Saga",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "saga.testGeneration",
         "title": "Saga: Test Generation",
         "category": "Saga"
@@ -98,6 +104,11 @@
         {
           "command": "saga.validateStories",
           "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.openSettings",
+          "when": "view == saga.storiesView || view == saga.contextView",
           "group": "navigation"
         }
       ],

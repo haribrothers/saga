@@ -1,9 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StoryEditor } from './StoryEditor';
+import { SettingsEditor } from './SettingsEditor';
 
-createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root')!;
+const panel = rootEl.dataset.panel;
+
+createRoot(rootEl).render(
     <StrictMode>
-        <StoryEditor />
+        {panel === 'settings' ? <SettingsEditor /> : <StoryEditor />}
     </StrictMode>,
 );
