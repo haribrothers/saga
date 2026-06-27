@@ -160,6 +160,8 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F21 | MCP exposure: run Saga as an MCP server so agents can read/write the backlog | P2 |
 | F22 | Diff-aware regeneration (regenerate only changed stories when context updates) | P2 |
 | F23 | Settings page Webview — GUI over `config.yaml` + SecretStorage credential entry | P0 |
+| F24 | Inline text context — paste/type free-form text as additional context without creating a file | P0 |
+| F25 | Delete epics, stories, and full cleanup — right-click delete with confirmation; `Saga: Clean Up` command | P0 |
 
 ### UI surface notes
 - Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
@@ -373,48 +375,171 @@ Opened via `saga.openSettings` (Command Palette or the `⚙` sidebar toolbar but
 - `testConnection` ← Webview requests a live probe; extension responds with `connectionResult`
 - `saveAck` → confirms the write completed
 
-### 7.6 Command Palette commands (full list)
+### 7.6 Generation Review Webview (F3, F4, F5)
+
+Every generation flow (epics and stories) goes through a **Generation Review Webview** rather than a simple notification. The panel is the single place where the user can: add instructions before generating, review the output, run INVEST validation, refine via follow-up LLM calls, and finally save or discard.
+
+#### Pre-generation: Additional Instructions input
+
+Before the LLM call fires, a VS Code **Input Box** (lightweight — no Webview needed) asks:
+
+```
+Additional instructions (optional)
+─────────────────────────────────
+e.g. "Focus on mobile use cases" or "Keep stories under 5 points"
+Press Enter to skip.
+```
+
+The typed text is appended to the generation prompt as a `## Additional Instructions` section. If the user presses Escape or leaves it blank, generation proceeds with no extra instructions.
+
+#### Review panel — Epics
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Saga — Generated Epics                  [↺ Regenerate] [×] │
+├─────────────────────────────────────────────────────────────┤
+│  Model: claude-sonnet-4-6 (Anthropic)                       │
+│  3 epics generated from 2 context files                     │
+│                                                             │
+│  ┌─ EPIC-001 ───────────────────────────────────────────┐   │
+│  │ Title       [Guest Checkout                        ] │   │
+│  │ Description [Covers the full guest purchase flow…  ] │   │
+│  │             [ Edit inline…                         ] │   │
+│  └──────────────────────────────────────────────────────┘   │
+│  ┌─ EPIC-002 ──────────────────────── [✕ Remove] ───────┐   │
+│  │ Title       [User Account Management               ] │   │
+│  └──────────────────────────────────────────────────────┘   │
+│  [ + Add Epic ]                                             │
+│                                                             │
+│  Refine instructions: [Make epics more granular      ]      │
+│                                          [ ↺ Refine ] ]     │
+│                                                             │
+│                      [ Discard ]        [ Save Epics ]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Review panel — Stories
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Saga — Generated Stories: EPIC-001       [↺ Regen] [×]    │
+├─────────────────────────────────────────────────────────────┤
+│  Model: claude-sonnet-4-6 (Anthropic)                       │
+│  4 stories generated                                        │
+│                                                             │
+│  ┌─ STORY-001 ── [draft] ── INVEST: ✓✓⚠✓✓✓ ── [✕] ──────┐  │
+│  │ Guest checkout — happy path                            │  │
+│  │ As a shopper I want to check out without an account   │  │
+│  │ [▼ Expand / Edit]                                     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌─ STORY-002 ── [draft] ── INVEST: ✓✓✗✓⚠✓ ── [✕] ──────┐  │
+│  │ ✗ Valuable: "so_that" reads as filler                 │  │
+│  │ ⚠ Small: estimate of 8 — consider splitting           │  │
+│  │ [↺ Refine this story]                                 │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  [ ✓ Validate All ]                                         │
+│  Refine instructions: [Fix INVEST issues in all stories]    │
+│                                          [ ↺ Refine All ]   │
+│                                                             │
+│                      [ Discard ]      [ Save Stories ]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Behaviour:**
+- **Model label** at top of panel shows `<model-id> (<provider>)` resolved from the routing config — so the user always knows what ran.
+- **Inline editing** — title, description (epics) and all story fields are editable directly in the panel. Changes are local to the panel until Save.
+- **Remove** (`✕`) — removes a single item from the list before saving.
+- **Add Epic** — appends a blank epic form the user fills manually.
+- **INVEST badges** — shown per story immediately after generation (the LLM returns its own self-assessment). Colors: green (pass), amber (warn), red (fail). Hover shows the reason.
+- **Validate All** — runs `InvestValidator` on every story in the panel, refreshing badges. Runs client-side heuristics instantly; LLM-assisted checks (Independent, Negotiable) run async and update badges when complete.
+- **Refine this story** — sends a follow-up prompt: *"The following story has INVEST issues: [list fails/warns]. Rewrite it to fix them while preserving the original intent."* The story card updates in-place.
+- **Refine All** — same but applied to all stories in the panel; the instructions box text is prepended as additional guidance.
+- **Regenerate** (`↺`) at the top — discards current output and re-runs the original generation (with the same additional instructions). Asks for confirmation if there are unsaved edits.
+- **Save** — writes all remaining items to `.saga/epics/` or `.saga/stories/` and closes the panel.
+- **Discard** — closes without writing anything. Asks for confirmation if items were edited.
+
+**Message contract (extension host ↔ Webview):**
+- `load` → `{ epics | stories, modelLabel, contextFileCount }`
+- `validate` ← Webview requests INVEST run; host responds with `{ type: 'investResults', results: Record<storyId, InvestResult> }`
+- `refine` ← `{ items, instructions }`; host re-calls LLM and responds with `{ type: 'refined', items }`
+- `regenerate` ← triggers a fresh generation run; host responds with a new `load`
+- `save` ← `{ items }`; host writes to disk and sends `{ type: 'saveAck' }`
+
+### 7.7 Command Palette commands (full list)
 
 All commands are prefixed `Saga:` and grouped under the `Saga` category.
 
 | Command | Trigger | Notes |
 |---|---|---|
-| `Saga: Init` | Palette + sidebar empty state button | Creates `.saga/`, opens config.yaml |
+| `Saga: Init` | Palette + sidebar empty state button | Creates `.saga/`, opens Settings |
 | `Saga: Getting Started` | Palette + post-init notification | Opens onboarding Webview |
-| `Saga: Add Context File` | Palette + sidebar `+` button + Explorer right-click | F2 |
-| `Saga: Generate Epics` | Palette + sidebar toolbar | F3; opens result in Webview for review |
-| `Saga: Generate Stories for Epic` | Palette + epic inline button | F4 |
-| `Saga: Validate Stories` | Palette + sidebar toolbar | F5; shows results in output panel |
-| `Saga: Open Story` | Palette + story click in tree | Opens story editor Webview |
+| `Saga: Add Context File` | Palette + sidebar `+` button + Explorer right-click | F2 — file context |
+| `Saga: Add Inline Context` | Palette + sidebar `+` menu | F24 — free-text context entry |
+| `Saga: Generate Epics` | Palette + sidebar toolbar | F3; asks for instructions → Generation Review Webview |
+| `Saga: Generate Stories for Epic` | Palette + epic inline button | F4; asks for instructions → Generation Review Webview |
+| `Saga: Validate Stories` | Palette + sidebar toolbar | F5; shows results in Output Channel |
+| `Saga: Open Story` | Palette + story click in tree | Opens Story editor Webview |
+| `Saga: Delete Epic` | Tree right-click on epic | F25; confirmation required |
+| `Saga: Delete Story` | Tree right-click on story | F25; confirmation required |
+| `Saga: Clean Up` | Palette | F25; removes all generated content after strong confirmation |
 | `Saga: Generate Agent Prompt` | Palette + story right-click | F12 |
 | `Saga: Generate AGENTS.md` | Palette + sidebar toolbar | F13 |
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
-| `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) — provider, routing, budget, tracker |
+| `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) |
 | `Saga: Test Generation` | Palette only (dev/debug) | M0 smoke test; removed pre-publish |
 
 ---
 
 ## 8. Detailed feature behavior
 
-### 8.1 Context selection (F2)
+### 8.1 Context selection (F2, F24)
+
+**File context (F2):**
 - Command **Saga: Add Context File** and a right-click action in the Explorer.
 - Supports `.md`, `.txt`, `.pdf` (text-extracted), `.docx` (text-extracted), and code files.
 - Each context entry stores a path + role tag (`brief`, `design`, `standards`, `reference`) so generation can weight them.
-- Large files are chunked/summarized to fit the model's context window; Saga shows what it will send before sending.
+- Large files show a character-count warning before registration.
+
+**Inline text context (F24):**
+- Command **Saga: Add Inline Context** — opens a multi-line VS Code Input Box where the user types or pastes free-form text (constraints, quick briefs, notes, scope boundaries).
+- Stored as a `.saga/context/inline-NNN.md` file with the role `reference` and a `source: inline` marker in the registry — treated identically to file context during generation.
+- Displayed in the Context Files tree with a ✏ icon and the first line as the label.
+- Can be edited (re-open the file) or removed via right-click → Remove.
 
 ### 8.2 Epic & story generation (F3, F4)
-- Command **Saga: Generate Epics from Context** → proposes epics; user accepts/edits before they're written to `.saga/epics/`.
-- Command **Saga: Generate Stories for Epic** → produces stories constrained by a strict output schema (the model is prompted to return validated YAML/JSON, parsed defensively).
-- Every story is generated with:
-  - User-story form (As a / I want / So that)
-  - Gherkin scenarios (happy path + at least one edge/negative)
-  - An INVEST self-assessment
-- Nothing is auto-pushed. Generation writes **drafts**; the user reviews in the editor (ideally in a PR).
+
+**Flow for both epics and stories:**
+1. User triggers generation (Command Palette or sidebar button).
+2. **Additional instructions input** (optional) — a VS Code Input Box appears: *"Additional instructions — e.g. 'focus on mobile', 'keep stories small'. Press Enter to skip."* The text is appended to the LLM prompt.
+3. A progress notification shows **`Generating via <model-id> (<provider>)…`** — the specific model resolved from routing config, not just the provider class.
+4. Output opens in the **Generation Review Webview** (see §7.6) — never auto-saved.
+5. User reviews, edits inline, validates INVEST (stories), refines, and clicks **Save** or **Discard**.
+
+**Model resolution:**
+- The generation task looks up `config.yaml → ai.routing.<task>` for the model ID (or `"auto"`).
+- `"auto"` falls back to tier-based selection (quality tasks → best available model, cheap tasks → fastest).
+- The resolved model ID and provider are shown in the progress notification and in the Generation Review panel header.
+- If the configured model is unavailable, Saga warns and falls back to the next available model rather than failing silently.
+
+**LLM output:**
+- Strict YAML schema prompt → Zod parse → auto-retry on parse failure (up to 2 attempts).
+- Every story includes user-story form, Gherkin scenarios (happy path + edge/negative), and an INVEST self-assessment.
+- Nothing is written to disk until the user clicks **Save** in the review panel.
 
 ### 8.3 INVEST validator (F5)
-- Runs at generation and on demand (**Saga: Validate Stories**).
+- Runs automatically inside the Generation Review Webview when stories are generated (LLM self-assessment shown as initial badges).
+- **Validate All** in the review panel re-runs the full `InvestValidator` (heuristic + LLM-assisted) against current panel content, refreshing all badges.
+- **Refine this story** / **Refine All** — sends a targeted follow-up prompt asking the LLM to fix specific INVEST failures, updating the story in-place.
+- Also available on-demand for already-saved stories: **Saga: Validate Stories** (Output Channel report) and the **✓ Validate** button in the Story editor Webview.
 - Each criterion returns `pass | warn | fail` with a one-line reason.
 - "Small = warn/fail" offers the **split assistant** (F17): proposes 2–3 smaller stories preserving acceptance coverage.
+
+### 8.4 Delete & cleanup (F25)
+- **Right-click → Delete** on any epic or story in the tree — shows a confirmation dialog before deleting the YAML file from `.saga/`.
+- Deleting an epic also offers to delete its child stories (with a second confirmation).
+- **Saga: Clean Up** command — removes all content from `.saga/epics/`, `.saga/stories/`, `.saga/prompts/`, and `.saga/context/` after a strong confirmation prompt: *"This will delete all generated epics, stories, prompts, and context files. This cannot be undone. Type 'delete all' to confirm."*
+- The `.saga/config.yaml`, `.saga/templates/`, and `.saga/.sync/` are never touched by Clean Up.
 
 ### 8.4 Two-way sync (F11) — the hard part
 Because `.saga/` is the source of truth, but the tracker can also change:
@@ -622,6 +747,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M0 — Skeleton** | Extension scaffold, `.saga/` init (F1), config + SecretStorage (F8), `LLMProvider` interface with VS Code LM + one local adapter | Can authenticate a model and run a hello-world generation |
 | **M1 — Generate** | Context registration (F2), epic/story generation (F3, F4), INVEST validator (F5), tree view + editor (F6) | End-to-end: docs → reviewed stories in `.saga/`, no tracker yet |
 | **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
+| **M1.6 — Generation UX** | Generation Review Webview (F3, F4, F5): pre-generation instructions input, interactive review panel with inline editing, INVEST validation badges, per-story and bulk refinement via LLM; inline text context (F24); delete epics/stories/cleanup (F25); model routing resolution wired to config.yaml; model label shown in progress + panel | Full human-in-the-loop generation flow with refinement |
 | **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push | Stories appear in the tracker |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |

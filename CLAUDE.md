@@ -6,9 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Saga is a VS Code extension that turns product briefs and technical designs into INVEST-compliant agile stories (with Gherkin acceptance criteria), pushes them to Jira Cloud or Azure DevOps, and keeps both sides in sync — all version-controlled in a `.saga/` folder inside the workspace. It also generates agent prompts and `AGENTS.md` for coding agents. See [docs/saga-prd.md](docs/saga-prd.md) for the full PRD.
 
-M0, M1, and M1.5 are complete (Settings Webview shipped). Two known issues being fixed:
-1. **Provider selection radio** — selecting a non-active provider did not visually update due to a controlled component state issue.
-2. **Model routing** — upgraded from a quality/cheap tier toggle to a live per-task model picker populated from `listModels()` across all enabled providers, with an `"auto"` fallback option.
+M0, M1, and M1.5 are complete. **M1.6 is next** — Generation UX overhaul.
+
+**M1.6 scope (next milestone):**
+1. **Generation Review Webview** — interactive panel for epics and stories: inline editing, INVEST badge row, per-story Refine button, Refine All, Validate All, Regenerate, Save/Discard.
+2. **Pre-generation instructions input** — VS Code Input Box before each LLM call for free-text additional instructions.
+3. **Model routing wired to config.yaml** — `getProvider()` currently ignores the routing config; replace with `resolveProviderFromConfig(task, sagaRoot)` that reads `ai.routing.<task>` from `config.yaml`, maps it to a provider + model, and shows `<model-id> (<provider>)` in progress notifications and panel headers.
+4. **Inline text context (F24)** — `saga.addInlineContext` command; stored as `.saga/context/inline-NNN.md`, shown in Context Files tree with ✏ icon.
+5. **Delete & cleanup (F25)** — `saga.deleteEpic`, `saga.deleteStory` (tree right-click with confirmation), `saga.cleanUp` command.
+
+**Known bug fixed in M1.6:** `getProvider()` in `extension.ts` always resolves `[vscodeLm, localLm]` regardless of `config.yaml`. The routing config written by the Settings Webview was never read during generation. Fix: read `ai.default_provider` and `ai.routing.<task>` from config and resolve the correct provider+model.
 
 **M0** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
 
@@ -138,7 +145,8 @@ Every command is reachable from **both** the Command Palette and the Saga sideba
 ## Key constraints
 
 - **AI provider**: Default to VS Code LM API (`vscode.lm.selectChatModels`). BYOK and local adapters are fallbacks. Class D (consumer OAuth token reuse) is permanently off the table — Anthropic blocked it January 2026, Google followed February 2026.
-- **Model routing**: `config.yaml` routing entries are either a specific model ID string (e.g. `claude-sonnet-4-6`) or `"auto"`. `"auto"` delegates to tier-based selection (quality/cheap). The Settings Webview populates the picker from live `listModels()` calls. Never hardcode model IDs in non-config code.
+- **Model routing**: `config.yaml` routing entries are either a specific model ID string (e.g. `claude-sonnet-4-6`) or `"auto"`. `"auto"` delegates to tier-based selection (quality/cheap). The Settings Webview populates the picker from live `listModels()` calls. Never hardcode model IDs in non-config code. **Generation must read routing config** — use `resolveProviderFromConfig(task, sagaRoot)` not the bare `getProvider()` helper.
+- **Model label in UI**: every generation run must surface `<model-id> (<provider>)` in both the VS Code progress notification and the Generation Review panel header so the user always knows what ran.
 - **Cost routing**: cheap models (Haiku, Flash) for validation/splitting/prompt assembly; quality tier (Sonnet, Gemini Pro) for epic/story generation. Prompt caching on the Anthropic adapter is the single biggest cost lever.
 - **Secrets**: use `context.secrets` (VS Code SecretStorage) for every credential. Zero secrets in `.saga/` or any committed file.
 - **Sync safety**: sync is always explicit (user-triggered), previews changes before applying, and is idempotent. No background auto-push.
