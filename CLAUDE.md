@@ -6,7 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Saga is a VS Code extension that turns product briefs and technical designs into INVEST-compliant agile stories (with Gherkin acceptance criteria), pushes them to Jira Cloud or Azure DevOps, and keeps both sides in sync — all version-controlled in a `.saga/` folder inside the workspace. It also generates agent prompts and `AGENTS.md` for coding agents. See [docs/saga-prd.md](docs/saga-prd.md) for the full PRD.
 
-M0 is complete. The extension registers `saga.init` (scaffolds `.saga/`) and `saga.testGeneration` (proves the LLM provider chain). The `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, and `SagaFileSystem` helpers are all implemented. Next milestone is M1 (context registration, generation, INVEST validator, sidebar tree view).
+M0 and M1 are complete. Next milestone is M1.5 (Settings Webview — F23).
+
+**M0** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
+
+**M1** — Full generate pipeline: `ContextManager` (add/remove/load context files), `GenerationService` (epic + story generation via Handlebars + Zod + LLM), `InvestValidator` (heuristic + LLM-assisted INVEST scoring), `SagaTreeProvider` + `ContextTreeProvider` (sidebar tree views with file watchers), `StoryPanel` (React Webview story editor with Form/YAML tabs and INVEST badges), `saga-repo.ts` (typed YAML I/O layer), Zod schemas for all domain types. Commands: `saga.addContextFile`, `saga.generateEpics`, `saga.generateStoriesForEpic`, `saga.validateStories`, `saga.openStory`.
+
+**M1.5 (next)** — Settings Webview panel (`saga.openSettings`): GUI over `config.yaml` for provider selection + connection testing, model routing overrides, BYOK key entry (via SecretStorage — keys never travel through the Webview), budget controls. Tracker section visible but disabled until M2.
 
 ## Commands
 
@@ -40,8 +46,9 @@ To launch the extension in a VS Code Extension Development Host: press **F5** in
 ### Entry point
 `src/extension.ts` exports `activate(context)` and `deactivate()`. All commands, tree views, and webview panels are registered here via `context.subscriptions`.
 
-### Planned module structure (from PRD)
-The extension will be organized around two core interfaces:
+### Module structure
+
+The extension is organized around two core interfaces:
 
 - **`LLMProvider`** — provider-agnostic AI access with three adapter implementations:
   - VS Code LM API (default — uses the user's Copilot seat)
@@ -51,10 +58,25 @@ The extension will be organized around two core interfaces:
 
 - **`TrackerAdapter`** — provider-agnostic tracker sync with adapters for Jira Cloud REST v3 and Azure DevOps REST.
 
-### Services
-- **Generation Service** — calls `LLMProvider` to produce epics/stories (strict YAML schema output, parsed with Zod, auto-retried on parse failure)
-- **Sync Engine** — 3-way diff between `.saga/` (source of truth), last-synced snapshot (`.saga/.sync/mappings.json`), and live remote tracker state
-- **Prompt / AGENTS.md Service** — assembles context-aware agent prompts from stories + workspace files
+### Implemented modules (M0 + M1)
+- `src/schema/index.ts` — Zod schemas: `Epic`, `Story`, `ContextEntry`, `InvestResult`, `Config`
+- `src/saga-repo.ts` — typed YAML I/O for epics, stories, config, context registry
+- `src/llm/` — `LLMProvider` interface + `VsCodeLmProvider` + `LocalLmProvider`
+- `src/secrets.ts` — `SecretsManager` wrapping VS Code SecretStorage
+- `src/saga-fs.ts` — workspace init helpers (scaffold `.saga/`, update `.gitignore`)
+- `src/context/extractor.ts` — text extraction (.md, .txt, .pdf, .docx, code)
+- `src/context/manager.ts` — `ContextManager` (add/remove/load context files)
+- `src/generation/prompts.ts` — Handlebars prompt templates for epic + story generation
+- `src/generation/service.ts` — `GenerationService` (LLM call → Zod parse → retry)
+- `src/invest/validator.ts` — `InvestValidator` (heuristic + LLM-assisted INVEST scoring)
+- `src/tree/saga-tree.ts` — `SagaTreeProvider` + `ContextTreeProvider` with file watchers
+- `src/webview/story-panel.ts` — extension-host side of the Story editor Webview
+- `webview-ui/` — React + Vite Webview bundle (story editor with Form/YAML tabs)
+
+### Services (planned / in progress)
+- **Settings Service** — reads/writes `config.yaml`, proxies SecretStorage key entry, tests provider connectivity (M1.5)
+- **Sync Engine** — 3-way diff between `.saga/`, last-synced snapshot, and live tracker state (M3)
+- **Prompt / AGENTS.md Service** — assembles context-aware agent prompts from stories + workspace files (M4)
 
 ### `.saga/` folder (the source of truth)
 ```
@@ -69,7 +91,15 @@ The extension will be organized around two core interfaces:
 ```
 
 ### Build pipeline
-`esbuild.js` bundles `src/extension.ts` to `dist/extension.js` (CJS, `vscode` externalized). Source maps are included in dev builds and stripped in production (`--production` flag).
+Two separate build targets:
+- **Extension**: `esbuild.js` bundles `src/extension.ts` → `dist/extension.js` (CJS, `vscode` externalized). `npm run compile` runs type-check + lint + esbuild.
+- **Webview**: `vite build` bundles `webview-ui/` → `dist/webview/` (ESM, React). `npm run compile:webview`. The extension host serves assets from `dist/webview/` via `webview.asWebviewUri`.
+
+```bash
+npm run compile          # extension only (check-types + lint + esbuild)
+npm run compile:webview  # webview only (vite build)
+npm run package          # both, production — run before F5 to get a fresh webview bundle
+```
 
 ### UI layers
 
@@ -81,17 +111,22 @@ Every command is reachable from **both** the Command Palette and the Saga sideba
 - **Empty/uninitialized state** — `welcomeView` contribution shows an "Initialize Saga" button when no `.saga/` folder exists; triggers `saga.init` (same as Command Palette)
 - **Getting Started Webview** — 3-step onboarding panel (provider selection → add context file → first generation); opened after init and via `Saga: Getting Started`; wraps the same commands available from the palette/toolbar
 - **Story editor Webview** — opens on story click; form view (friendly fields + INVEST badges + Gherkin editor) and YAML tab for power users
-- **Lightweight interactions**: QuickPick / Input boxes for provider selection, role tagging, confirmations
-- **Rich panels**: Webview + React + Vite (story form editor, 3-way diff UI, sync review)
+- **Settings Webview** — `saga.openSettings` / `⚙` button; GUI over `config.yaml` + SecretStorage key entry; provider connection tester (M1.5)
+- **Lightweight interactions**: QuickPick / Input boxes for role tagging, confirmations
+- **Rich panels**: Webview + React + Vite (story editor, settings, 3-way diff UI, sync review)
 
-### Key dependencies (to add as implementation proceeds)
+### Key dependencies
+**Installed (M0 + M1):**
 - `zod` — schema validation and LLM output parsing
 - `yaml` — read/write `.saga/` YAML files
 - `handlebars` — story and prompt templates
-- `@anthropic-ai/sdk`, `@google/generative-ai` — BYOK provider adapters
 - `@cucumber/gherkin` — validate generated acceptance criteria
 - `pdf-parse`, `mammoth` — extract text from brief/design documents
-- VS Code SecretStorage API — all credentials (API keys, OAuth tokens, tracker PATs) go here, never in `.saga/`
+- `react`, `react-dom`, `vite`, `@vitejs/plugin-react` — Webview UI
+
+**To add (future milestones):**
+- `@anthropic-ai/sdk`, `@google/generative-ai` — BYOK provider adapters (M4)
+- VS Code SecretStorage API — all credentials go here, never in `.saga/` (already used via `SecretsManager`)
 
 ## Key constraints
 

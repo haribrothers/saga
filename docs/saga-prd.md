@@ -159,6 +159,7 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F20 | Additional trackers (Linear, GitHub Issues, Jira DC) via the same adapter interface | P2 |
 | F21 | MCP exposure: run Saga as an MCP server so agents can read/write the backlog | P2 |
 | F22 | Diff-aware regeneration (regenerate only changed stories when context updates) | P2 |
+| F23 | Settings page Webview — GUI over `config.yaml` + SecretStorage credential entry | P0 |
 
 ### UI surface notes
 - Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
@@ -302,7 +303,65 @@ Clicking a story in the tree (or **Saga: Open Story**) opens a Webview panel in 
 - **`[↗]` Push** — pushes this story to the configured tracker (M2+).
 - Changes are saved back to the YAML file on disk; the tree refreshes automatically.
 
-### 7.5 Command Palette commands (full list)
+### 7.5 Settings Webview panel (F23)
+
+Opened via `saga.openSettings` (Command Palette or the `⚙` sidebar toolbar button). Replaces the raw `config.yaml` open behaviour for the common case — power users can still edit `config.yaml` directly.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Saga — Settings                                [×] │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  AI Provider                                        │
+│  ──────────────────────────────────────────         │
+│  Active provider                                    │
+│  ◉ VS Code LM API (Copilot)   [ Test ] ✓ Connected │
+│  ○ Local (Ollama / LM Studio)                       │
+│    Base URL: [http://localhost:11434/v1        ]     │
+│             [ Test ]                                │
+│  ○ Anthropic (API Key)                              │
+│    Key: [••••••••••••••••••] [ Update Key ]         │
+│             [ Test ]                                │
+│  ○ Google Gemini (API Key)                          │
+│  ○ OpenAI (API Key)                                 │
+│                                                     │
+│  Model Routing                                      │
+│  ──────────────────────────────────────────         │
+│  Epic generation     [quality ▼]                    │
+│  Story generation    [quality ▼]                    │
+│  INVEST validation   [cheap   ▼]                    │
+│  Story splitting     [cheap   ▼]                    │
+│  Agent prompt        [cheap   ▼]                    │
+│  AGENTS.md           [cheap   ▼]                    │
+│                                                     │
+│  Tracker             (coming in M2)                 │
+│  ──────────────────────────────────────────         │
+│  Default tracker     [none    ▼]  (greyed out)      │
+│                                                     │
+│  Budget                                             │
+│  ──────────────────────────────────────────         │
+│  Warn above (USD)    [0.50         ]                │
+│  Show token preview  [✓]                            │
+│                                                     │
+│                              [ Save Settings ]      │
+└─────────────────────────────────────────────────────┘
+```
+
+**Behaviour:**
+- Non-secret fields (provider selection, base URL, model routing, budget) read from and write back to `.saga/config.yaml` — they remain git-tracked.
+- API keys are **write-only** from the UI: the key field shows masked dots if a key is stored in SecretStorage, and an **Update Key** button opens a VS Code Input Box to replace it. Keys are never read back into the Webview.
+- **Test** button per provider calls `LLMProvider.isAvailable()` and shows a one-line result inline (`✓ Connected` / `✗ Unreachable — check base URL` etc.).
+- **Tracker section** is visible but all fields are disabled with a "coming in M2" label — no functional code needed until M2.
+- Changes are not applied until **Save Settings** is clicked; unsaved changes show a "●" dirty indicator in the panel title.
+
+**Message contract (extension host ↔ Webview):**
+- `load` → sends current `ConfigData` (non-secret fields only) + `providerStatus` map (`{ [providerId]: 'connected' | 'unreachable' | 'unknown' }`)
+- `save` ← Webview sends updated `ConfigData`; extension writes to `config.yaml`
+- `saveSecret` ← Webview triggers a VS Code Input Box in the extension host (key never travels through the Webview message bus)
+- `testConnection` ← Webview requests a live probe; extension responds with `connectionResult`
+- `saveAck` → confirms the write completed
+
+### 7.6 Command Palette commands (full list)
 
 All commands are prefixed `Saga:` and grouped under the `Saga` category.
 
@@ -318,7 +377,7 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 | `Saga: Generate Agent Prompt` | Palette + story right-click | F12 |
 | `Saga: Generate AGENTS.md` | Palette + sidebar toolbar | F13 |
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
-| `Saga: Configure Credentials` | Palette + sidebar `⚙` button | Opens SecretStorage input for keys/tokens |
+| `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) — provider, routing, budget, tracker |
 | `Saga: Test Generation` | Palette only (dev/debug) | M0 smoke test; removed pre-publish |
 
 ---
@@ -548,6 +607,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 |---|---|---|
 | **M0 — Skeleton** | Extension scaffold, `.saga/` init (F1), config + SecretStorage (F8), `LLMProvider` interface with VS Code LM + one local adapter | Can authenticate a model and run a hello-world generation |
 | **M1 — Generate** | Context registration (F2), epic/story generation (F3, F4), INVEST validator (F5), tree view + editor (F6) | End-to-end: docs → reviewed stories in `.saga/`, no tracker yet |
+| **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
 | **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push | Stories appear in the tracker |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |
