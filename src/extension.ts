@@ -1,26 +1,119 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { SecretsManager } from './secrets';
+import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
+import { VsCodeLmProvider } from './llm/vscode-lm';
+import { LocalLmProvider } from './llm/local';
+import { resolveProvider } from './llm/provider';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+    const secrets = new SecretsManager(context.secrets);
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "saga" is now active!');
+    // ── saga.init ──────────────────────────────────────────────────────────────
+    const initCmd = vscode.commands.registerCommand('saga.init', async () => {
+        const root = getWorkspaceRoot();
+        if (!root) {
+            vscode.window.showErrorMessage(
+                'Saga: Open a workspace folder first before initializing.',
+            );
+            return;
+        }
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('saga.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Saga!');
-	});
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: 'Saga: Initializing .saga/ folder…',
+                cancellable: false,
+            },
+            async () => {
+                await initSagaFolder(root);
+            },
+        );
 
-	context.subscriptions.push(disposable);
+        const open = 'Open config.yaml';
+        const choice = await vscode.window.showInformationMessage(
+            'Saga initialized! .saga/ is ready. Configure your AI provider in .saga/config.yaml.',
+            open,
+        );
+        if (choice === open) {
+            const configUri = vscode.Uri.joinPath(root, '.saga', 'config.yaml');
+            await vscode.window.showTextDocument(configUri);
+        }
+    });
+
+    // ── saga.testGeneration ────────────────────────────────────────────────────
+    const testGenCmd = vscode.commands.registerCommand(
+        'saga.testGeneration',
+        async () => {
+            const root = getWorkspaceRoot();
+            if (!root) {
+                vscode.window.showErrorMessage('Saga: Open a workspace folder first.');
+                return;
+            }
+
+            if (!(await isSagaInitialized(root))) {
+                const init = 'Run Saga: Init';
+                const choice = await vscode.window.showWarningMessage(
+                    'Saga is not initialized in this workspace. Run Saga: Init first.',
+                    init,
+                );
+                if (choice === init) {
+                    await vscode.commands.executeCommand('saga.init');
+                }
+                return;
+            }
+
+            // Build provider chain: VS Code LM → local Ollama
+            const vscodeLm = new VsCodeLmProvider();
+            const localLm = new LocalLmProvider();
+            const provider = await resolveProvider([vscodeLm, localLm]);
+
+            if (!provider) {
+                vscode.window.showErrorMessage(
+                    'Saga: No AI provider available. ' +
+                        'Install GitHub Copilot, or start Ollama locally, then try again.',
+                );
+                return;
+            }
+
+            let output = '';
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Saga: Testing generation via ${provider.displayName}…`,
+                    cancellable: false,
+                },
+                async () => {
+                    const response = await provider.generate({
+                        messages: [
+                            {
+                                role: 'system',
+                                content:
+                                    'You are an expert agile coach. Reply concisely.',
+                            },
+                            {
+                                role: 'user',
+                                content:
+                                    'Write one INVEST-compliant user story for a guest checkout feature. ' +
+                                    'Include one Gherkin acceptance scenario. ' +
+                                    'Format: User Story: <story>\n\nAcceptance Criteria:\n<gherkin>',
+                            },
+                        ],
+                        maxTokens: 400,
+                    });
+                    output = response.content;
+                },
+            );
+
+            // Show result in a new untitled document
+            const doc = await vscode.workspace.openTextDocument({
+                language: 'markdown',
+                content: `# Saga — Test Generation\n\n**Provider:** ${provider.displayName}\n\n---\n\n${output}`,
+            });
+            await vscode.window.showTextDocument(doc);
+        },
+    );
+
+    context.subscriptions.push(initCmd, testGenCmd);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

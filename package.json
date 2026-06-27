@@ -14,8 +14,14 @@
   "contributes": {
     "commands": [
       {
-        "command": "saga.helloWorld",
-        "title": "Hello World"
+        "command": "saga.init",
+        "title": "Saga: Init",
+        "category": "Saga"
+      },
+      {
+        "command": "saga.testGeneration",
+        "title": "Saga: Test Generation",
+        "category": "Saga"
       }
     ]
   },
