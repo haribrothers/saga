@@ -188,6 +188,24 @@ ${storyList}
 ## Refinement Instructions
 ${instructions}
 
-Return the full refined list in the same YAML format as story generation, including all fields (as_a, i_want, so_that, acceptance_criteria, invest, estimate, labels).
-Each story must keep its original id and epic value.`;
+Return the full refined list. Each story must keep its original id and epic value.
+DO NOT include an invest block — INVEST scoring is handled separately.
+Use this exact format:
+
+- id: STORY-001
+  type: story
+  title: <title>
+  epic: <epic-id>
+  status: draft
+  as_a: <persona>
+  i_want: <goal>
+  so_that: <benefit>
+  acceptance_criteria:
+    - |
+      Scenario: <title>
+        Given <precondition>
+        When <action>
+        Then <outcome>
+  estimate: <number>
+  labels: []`;
 }

@@ -2,11 +2,16 @@ import { z } from 'zod';
 
 // ─── INVEST ───────────────────────────────────────────────────────────────────
 
-export const InvestCriterionResultSchema = z.object({
-    result: z.enum(['pass', 'warn', 'fail']),
-    reason: z.string(),
-});
-export type InvestCriterionResult = z.infer<typeof InvestCriterionResultSchema>;
+// Accept either the full object form { result, reason } or a bare string shorthand
+// "pass" | "warn" | "fail" that some LLM responses emit. Coerce the shorthand.
+export const InvestCriterionResultSchema = z.union([
+    z.object({
+        result: z.enum(['pass', 'warn', 'fail']),
+        reason: z.string(),
+    }),
+    z.enum(['pass', 'warn', 'fail']).transform((r) => ({ result: r, reason: '' })),
+]);
+export type InvestCriterionResult = { result: 'pass' | 'warn' | 'fail'; reason: string };
 
 export const InvestResultSchema = z.object({
     independent: InvestCriterionResultSchema,
