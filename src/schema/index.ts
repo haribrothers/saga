@@ -104,11 +104,19 @@ export type ContextRegistry = z.infer<typeof ContextRegistrySchema>;
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 
-const ModelTierSchema = z.record(z.string(), z.union([z.string(), z.record(z.string(), z.string())]));
+/**
+ * Per-task routing value: either a specific model ID string (e.g. "claude-sonnet-4-6")
+ * or the literal "auto" which delegates to Saga's tier-based selection at runtime.
+ * Accepts both the new string form and the legacy { tier: ... } object so that
+ * existing config.yaml files parse without error.
+ */
+const RoutingValueSchema = z.union([
+    z.string(),                                     // model ID or "auto"
+    z.object({ tier: z.enum(['quality', 'cheap']) }) // legacy tier object — coerced to "auto"
+        .transform(() => 'auto' as const),
+]).default('auto');
 
-const ProviderRoutingEntrySchema = z.object({
-    tier: z.enum(['quality', 'cheap']),
-});
+export type RoutingValue = string; // "auto" or a model ID
 
 export const ConfigSchema = z.object({
     ai: z.object({
@@ -126,17 +134,13 @@ export const ConfigSchema = z.object({
             }).optional(),
         }),
         routing: z.object({
-            epic_generation: ProviderRoutingEntrySchema,
-            story_generation: ProviderRoutingEntrySchema,
-            invest_validation: ProviderRoutingEntrySchema,
-            story_splitting: ProviderRoutingEntrySchema,
-            agent_prompt: ProviderRoutingEntrySchema,
-            agents_md: ProviderRoutingEntrySchema,
+            epic_generation: RoutingValueSchema,
+            story_generation: RoutingValueSchema,
+            invest_validation: RoutingValueSchema,
+            story_splitting: RoutingValueSchema,
+            agent_prompt: RoutingValueSchema,
+            agents_md: RoutingValueSchema,
         }).partial(),
-        models: z.object({
-            quality: ModelTierSchema.optional(),
-            cheap: ModelTierSchema.optional(),
-        }).optional(),
         budget: z.object({
             confirm_above_usd: z.number().optional(),
             show_token_preview: z.boolean().optional(),

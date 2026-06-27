@@ -12,7 +12,7 @@ import { SagaTreeProvider, ContextTreeProvider } from './tree/saga-tree';
 import { StoryPanel } from './webview/story-panel';
 import { SettingsPanel } from './webview/settings-panel';
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     const secrets = new SecretsManager(context.secrets);
     void secrets; // will be used by BYOK providers in M4
 
@@ -47,27 +47,30 @@ export function activate(context: vscode.ExtensionContext) {
         return true;
     }
 
-    // ── Tree providers ─────────────────────────────────────────────────────────
-    // We defer creation until we know the workspace root; for now register
-    // placeholder providers that refresh once the workspace is confirmed.
+    // ── Tree providers + saga.initialized context ──────────────────────────────
     const root = getWorkspaceRoot();
 
     let sagaTree: SagaTreeProvider | undefined;
     let contextTree: ContextTreeProvider | undefined;
 
-    if (root) {
-        const sagaRoot = getSagaRoot(root);
+    async function initTreeProviders(workspaceRoot: vscode.Uri) {
+        if (sagaTree) { return; }
+        const sagaRoot = getSagaRoot(workspaceRoot);
         sagaTree = new SagaTreeProvider(sagaRoot);
         contextTree = new ContextTreeProvider(sagaRoot);
         context.subscriptions.push(sagaTree, contextTree);
+        vscode.window.createTreeView('saga.storiesView', { treeDataProvider: sagaTree, showCollapseAll: true });
+        vscode.window.createTreeView('saga.contextView', { treeDataProvider: contextTree });
+    }
 
-        vscode.window.createTreeView('saga.storiesView', {
-            treeDataProvider: sagaTree,
-            showCollapseAll: true,
-        });
-        vscode.window.createTreeView('saga.contextView', {
-            treeDataProvider: contextTree,
-        });
+    async function setSagaContext(workspaceRoot: vscode.Uri) {
+        const initialized = await isSagaInitialized(workspaceRoot);
+        await vscode.commands.executeCommand('setContext', 'saga.initialized', initialized);
+    }
+
+    if (root) {
+        await initTreeProviders(root);
+        await setSagaContext(root);
     }
 
     // ── saga.init ──────────────────────────────────────────────────────────────
@@ -80,23 +83,15 @@ export function activate(context: vscode.ExtensionContext) {
             async () => { await initSagaFolder(root); },
         );
 
-        // Attach tree providers if this is the first init
-        if (!sagaTree) {
-            const sagaRoot = getSagaRoot(root);
-            sagaTree = new SagaTreeProvider(sagaRoot);
-            contextTree = new ContextTreeProvider(sagaRoot);
-            context.subscriptions.push(sagaTree, contextTree);
-            vscode.window.createTreeView('saga.storiesView', { treeDataProvider: sagaTree, showCollapseAll: true });
-            vscode.window.createTreeView('saga.contextView', { treeDataProvider: contextTree });
-        }
+        await initTreeProviders(root);
+        await setSagaContext(root);
 
         const choice = await vscode.window.showInformationMessage(
-            'Saga initialized! Configure your AI provider in .saga/config.yaml.',
-            'Open config.yaml',
+            'Saga initialized! Configure your AI provider in Settings.',
+            'Open Settings',
         );
-        if (choice === 'Open config.yaml') {
-            const configUri = vscode.Uri.joinPath(root, '.saga', 'config.yaml');
-            await vscode.window.showTextDocument(configUri);
+        if (choice === 'Open Settings') {
+            await vscode.commands.executeCommand('saga.openSettings');
         }
     });
 

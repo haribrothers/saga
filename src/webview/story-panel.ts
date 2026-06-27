@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { readStory, writeStory, listEpics, getSagaRoot } from '../saga-repo';
 import { InvestValidator } from '../invest/validator';
 import { Story, InvestResult } from '../schema';
 import { LLMProvider } from '../llm/provider';
+import { getWebviewHtml } from './html';
 
 // Matches the message types in webview-ui/src/vscode.ts
 type ExtensionToWebview =
@@ -127,36 +127,11 @@ export class StoryPanel {
     }
 
     private getHtml(): string {
-        const webview = this._panel.webview;
-        const distUri = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'assets', 'index.js'));
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'assets', 'index.css'));
-        const nonce = getNonce();
-
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="${styleUri}" />
-    <title>Story Editor</title>
-</head>
-<body>
-    <div id="root"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+        return getWebviewHtml(this._panel.webview, this.extensionUri, 'story');
     }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getNonce(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-}
 
 function storyToMsg(story: Story): StoryMsg {
     return {

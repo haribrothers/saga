@@ -206,28 +206,19 @@
 
 .routing-label {
     font-size: 13px;
+    flex-shrink: 0;
 }
 
-.tier-toggle {
-    display: flex;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 4px;
-    overflow: hidden;
+.routing-select {
+    width: 260px;
+    flex-shrink: 0;
 }
 
-.tier-btn {
-    padding: 3px 12px;
+.routing-no-models {
+    display: block;
+    margin-top: 4px;
+    color: var(--vscode-charts-yellow, #cca700);
     font-size: 11px;
-    border: none;
-    background: transparent;
-    color: var(--vscode-foreground);
-    cursor: pointer;
-    text-transform: capitalize;
-}
-.tier-btn + .tier-btn { border-left: 1px solid var(--vscode-panel-border); }
-.tier-btn--active {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
 }
 
 /* ── Budget ── */

@@ -1,20 +1,24 @@
 // Typed postMessage bridge for the Settings Webview panel.
-// Kept separate from vscode.ts (story panel) to avoid type conflicts.
+// Imports the shared singleton so acquireVsCodeApi() is only called once.
+import { vscodeApi as _api } from './vscode-api';
 
-declare function acquireVsCodeApi(): {
-    postMessage(msg: SettingsWebviewToExtension): void;
-    getState(): unknown;
-    setState(state: unknown): void;
+const vscodeApi = {
+    postMessage: (msg: SettingsWebviewToExtension) => _api.postMessage(msg),
+    getState: () => _api.getState(),
+    setState: (s: unknown) => _api.setState(s),
 };
-
-const vscodeApi = acquireVsCodeApi();
 export default vscodeApi;
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
 export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'local';
 export type ProviderStatus = 'connected' | 'unreachable' | 'unknown' | 'testing';
-export type ModelTier = 'quality' | 'cheap';
+
+export interface ModelOption {
+    id: string;
+    displayName: string;
+    provider: ProviderId;
+}
 
 export interface SettingsConfigData {
     ai: {
@@ -27,12 +31,12 @@ export interface SettingsConfigData {
             local: { enabled: boolean; base_url: string };
         };
         routing: {
-            epic_generation: ModelTier;
-            story_generation: ModelTier;
-            invest_validation: ModelTier;
-            story_splitting: ModelTier;
-            agent_prompt: ModelTier;
-            agents_md: ModelTier;
+            epic_generation: string;    // model ID or "auto"
+            story_generation: string;
+            invest_validation: string;
+            story_splitting: string;
+            agent_prompt: string;
+            agents_md: string;
         };
         budget: {
             confirm_above_usd: number;
@@ -47,8 +51,8 @@ export interface SettingsConfigData {
 // ─── Message types ────────────────────────────────────────────────────────────
 
 export type SettingsExtensionToWebview =
-    | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean> }
-    | { type: 'saveAck' }
+    | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean>; availableModels: ModelOption[] }
+    | { type: 'saveAck'; availableModels: ModelOption[] }
     | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string };
 
 export type SettingsWebviewToExtension =

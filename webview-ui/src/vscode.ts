@@ -1,13 +1,12 @@
-// Typed bridge to the VS Code extension host postMessage API.
-// acquireVsCodeApi() is injected by VS Code into the Webview context.
+// Typed bridge to the VS Code extension host postMessage API — Story panel.
+// Re-exports the shared singleton so acquireVsCodeApi() is only called once.
+import { vscodeApi } from './vscode-api';
 
-declare function acquireVsCodeApi(): {
-    postMessage(msg: WebviewToExtension): void;
-    getState(): unknown;
-    setState(state: unknown): void;
+const vscode = {
+    postMessage: (msg: WebviewToExtension) => vscodeApi.postMessage(msg),
+    getState: () => vscodeApi.getState(),
+    setState: (s: unknown) => vscodeApi.setState(s),
 };
-
-const vscode = acquireVsCodeApi();
 export default vscode;
 
 // ─── Message types (shared contract between Webview and extension host) ────────

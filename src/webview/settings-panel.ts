@@ -4,12 +4,19 @@ import { getSagaRoot, readConfig } from '../saga-repo';
 import { VsCodeLmProvider } from '../llm/vscode-lm';
 import { LocalLmProvider } from '../llm/local';
 import { SecretsManager, SecretKey, SecretKeyName } from '../secrets';
+import { getWebviewHtml } from './html';
 
 // ─── Message contract ─────────────────────────────────────────────────────────
 
 export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'local';
 export type ProviderStatus = 'connected' | 'unreachable' | 'unknown' | 'testing';
-export type ModelTier = 'quality' | 'cheap';
+
+/** A model available for selection in the routing picker. */
+export interface ModelOption {
+    id: string;          // e.g. "claude-sonnet-4-6"
+    displayName: string; // e.g. "claude-sonnet-4-6 (Anthropic)"
+    provider: ProviderId;
+}
 
 export interface SettingsConfigData {
     ai: {
@@ -22,12 +29,12 @@ export interface SettingsConfigData {
             local: { enabled: boolean; base_url: string };
         };
         routing: {
-            epic_generation: ModelTier;
-            story_generation: ModelTier;
-            invest_validation: ModelTier;
-            story_splitting: ModelTier;
-            agent_prompt: ModelTier;
-            agents_md: ModelTier;
+            epic_generation: string;    // model ID or "auto"
+            story_generation: string;
+            invest_validation: string;
+            story_splitting: string;
+            agent_prompt: string;
+            agents_md: string;
         };
         budget: {
             confirm_above_usd: number;
@@ -40,8 +47,8 @@ export interface SettingsConfigData {
 }
 
 type ExtensionToWebview =
-    | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean> }
-    | { type: 'saveAck' }
+    | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean>; availableModels: ModelOption[] }
+    | { type: 'saveAck'; availableModels: ModelOption[] }
     | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string };
 
 type WebviewToExtension =
@@ -108,7 +115,10 @@ export class SettingsPanel {
 
         if (msg.type === 'save') {
             await this.saveConfig(msg.config);
-            this.post({ type: 'saveAck' });
+            // Re-discover models against the updated config so the routing
+            // dropdowns refresh without the user having to reopen the panel.
+            const availableModels = await this.discoverModels(msg.config);
+            this.post({ type: 'saveAck', availableModels });
             this._panel.title = 'Saga Settings';
         }
 
@@ -129,14 +139,19 @@ export class SettingsPanel {
     private async sendLoad(): Promise<void> {
         const sagaRoot = getSagaRoot(this.workspaceRoot);
         const config = await this.readSettingsConfig(sagaRoot);
-        const providerStatus = await this.probeAllProviders(config);
-        const secretsPresent = await this.checkSecretsPresent();
-        this.post({ type: 'load', config, providerStatus, secretsPresent });
+        const [providerStatus, secretsPresent, availableModels] = await Promise.all([
+            this.probeAllProviders(config),
+            this.checkSecretsPresent(),
+            this.discoverModels(config),
+        ]);
+        this.post({ type: 'load', config, providerStatus, secretsPresent, availableModels });
     }
 
     private async readSettingsConfig(sagaRoot: vscode.Uri): Promise<SettingsConfigData> {
         try {
             const raw = await readConfig(sagaRoot);
+            // Zod already coerces legacy { tier } objects to "auto" via RoutingValueSchema
+            const r = raw.ai.routing ?? {};
             return {
                 ai: {
                     default_provider: raw.ai.default_provider as ProviderId,
@@ -148,12 +163,12 @@ export class SettingsPanel {
                         local: { enabled: raw.ai.providers.local?.enabled ?? false, base_url: raw.ai.providers.local?.base_url ?? 'http://localhost:11434/v1' },
                     },
                     routing: {
-                        epic_generation: (raw.ai.routing?.epic_generation?.tier ?? 'quality') as ModelTier,
-                        story_generation: (raw.ai.routing?.story_generation?.tier ?? 'quality') as ModelTier,
-                        invest_validation: (raw.ai.routing?.invest_validation?.tier ?? 'cheap') as ModelTier,
-                        story_splitting: (raw.ai.routing?.story_splitting?.tier ?? 'cheap') as ModelTier,
-                        agent_prompt: (raw.ai.routing?.agent_prompt?.tier ?? 'cheap') as ModelTier,
-                        agents_md: (raw.ai.routing?.agents_md?.tier ?? 'cheap') as ModelTier,
+                        epic_generation:   typeof r.epic_generation   === 'string' ? r.epic_generation   : 'auto',
+                        story_generation:  typeof r.story_generation  === 'string' ? r.story_generation  : 'auto',
+                        invest_validation: typeof r.invest_validation === 'string' ? r.invest_validation : 'auto',
+                        story_splitting:   typeof r.story_splitting   === 'string' ? r.story_splitting   : 'auto',
+                        agent_prompt:      typeof r.agent_prompt      === 'string' ? r.agent_prompt      : 'auto',
+                        agents_md:         typeof r.agents_md         === 'string' ? r.agents_md         : 'auto',
                     },
                     budget: {
                         confirm_above_usd: raw.ai.budget?.confirm_above_usd ?? 0.5,
@@ -191,12 +206,12 @@ export class SettingsPanel {
         setIn(doc, ['ai', 'providers', 'openai', 'enabled'], data.ai.providers.openai.enabled);
         setIn(doc, ['ai', 'providers', 'local', 'enabled'], data.ai.providers.local.enabled);
         setIn(doc, ['ai', 'providers', 'local', 'base_url'], data.ai.providers.local.base_url);
-        setIn(doc, ['ai', 'routing', 'epic_generation', 'tier'], data.ai.routing.epic_generation);
-        setIn(doc, ['ai', 'routing', 'story_generation', 'tier'], data.ai.routing.story_generation);
-        setIn(doc, ['ai', 'routing', 'invest_validation', 'tier'], data.ai.routing.invest_validation);
-        setIn(doc, ['ai', 'routing', 'story_splitting', 'tier'], data.ai.routing.story_splitting);
-        setIn(doc, ['ai', 'routing', 'agent_prompt', 'tier'], data.ai.routing.agent_prompt);
-        setIn(doc, ['ai', 'routing', 'agents_md', 'tier'], data.ai.routing.agents_md);
+        setIn(doc, ['ai', 'routing', 'epic_generation'],   data.ai.routing.epic_generation);
+        setIn(doc, ['ai', 'routing', 'story_generation'],  data.ai.routing.story_generation);
+        setIn(doc, ['ai', 'routing', 'invest_validation'], data.ai.routing.invest_validation);
+        setIn(doc, ['ai', 'routing', 'story_splitting'],   data.ai.routing.story_splitting);
+        setIn(doc, ['ai', 'routing', 'agent_prompt'],      data.ai.routing.agent_prompt);
+        setIn(doc, ['ai', 'routing', 'agents_md'],         data.ai.routing.agents_md);
         setIn(doc, ['ai', 'budget', 'confirm_above_usd'], data.ai.budget.confirm_above_usd);
         setIn(doc, ['ai', 'budget', 'show_token_preview'], data.ai.budget.show_token_preview);
         setIn(doc, ['tracker', 'default'], data.tracker.default);
@@ -255,6 +270,81 @@ export class SettingsPanel {
         return status;
     }
 
+    // ─── Model discovery ──────────────────────────────────────────────────────
+
+    private async discoverModels(config: SettingsConfigData): Promise<ModelOption[]> {
+        const options: ModelOption[] = [];
+
+        const queries: Promise<void>[] = [];
+
+        if (config.ai.providers['vscode-lm'].enabled) {
+            queries.push((async () => {
+                try {
+                    const p = new VsCodeLmProvider();
+                    const models = await p.listModels();
+                    for (const m of models) {
+                        options.push({ id: m.id, displayName: `${m.displayName} (Copilot)`, provider: 'vscode-lm' });
+                    }
+                } catch { /* provider unavailable */ }
+            })());
+        }
+
+        if (config.ai.providers.local.enabled) {
+            queries.push((async () => {
+                try {
+                    const p = new LocalLmProvider();
+                    const models = await p.listModels();
+                    for (const m of models) {
+                        options.push({ id: m.id, displayName: `${m.displayName} (Local)`, provider: 'local' });
+                    }
+                } catch { /* endpoint unreachable */ }
+            })());
+        }
+
+        // BYOK providers: we know their model IDs statically until M4 adapters land.
+        // Show them only if a key is stored.
+        const byokModels: Array<{ provider: ProviderId; models: Array<{ id: string; label: string }> }> = [
+            {
+                provider: 'anthropic',
+                models: [
+                    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
+                    { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (Anthropic)' },
+                    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (Anthropic)' },
+                ],
+            },
+            {
+                provider: 'gemini',
+                models: [
+                    { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (Google)' },
+                    { id: 'gemini-2.0-flash',  label: 'Gemini 2.0 Flash (Google)' },
+                ],
+            },
+            {
+                provider: 'openai',
+                models: [
+                    { id: 'gpt-4o',       label: 'GPT-4o (OpenAI)' },
+                    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini (OpenAI)' },
+                ],
+            },
+        ];
+
+        for (const { provider, models } of byokModels) {
+            const key = SECRET_KEYS[provider];
+            if (!key) { continue; }
+            if (!config.ai.providers[provider].enabled) { continue; }
+            queries.push((async () => {
+                const hasKey = await this.secrets.has(key);
+                if (!hasKey) { return; }
+                for (const m of models) {
+                    options.push({ id: m.id, displayName: m.label, provider });
+                }
+            })());
+        }
+
+        await Promise.all(queries);
+        return options;
+    }
+
     // ─── Secret entry ─────────────────────────────────────────────────────────
 
     private async promptForSecret(provider: ProviderId): Promise<void> {
@@ -291,27 +381,7 @@ export class SettingsPanel {
     // ─── HTML ─────────────────────────────────────────────────────────────────
 
     private getHtml(): string {
-        const webview = this._panel.webview;
-        const distUri = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'assets', 'index.js'));
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'assets', 'index.css'));
-        const nonce = getNonce();
-
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="${styleUri}" />
-    <title>Saga Settings</title>
-</head>
-<body>
-    <div id="root" data-panel="settings"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+        return getWebviewHtml(this._panel.webview, this.extensionUri, 'settings');
     }
 
     private post(msg: ExtensionToWebview): void {
@@ -321,26 +391,9 @@ export class SettingsPanel {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getNonce(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-}
-
 /** Deep-set a value in a yaml.Document by key path, creating maps as needed. */
 function setIn(doc: yaml.Document, path: string[], value: unknown): void {
-     
-    let node: any = doc.contents;
-    for (let i = 0; i < path.length - 1; i++) {
-        const key = path[i];
-        let child = node?.get?.(key, true);
-        if (!child || child.type !== 'MAP') {
-            const map = doc.createNode({});
-            node.set(key, map);
-            child = map;
-        }
-        node = child;
-    }
-    node?.set?.(path[path.length - 1], value);
+    doc.setIn(path, value);
 }
 
 function defaultSettingsConfig(): SettingsConfigData {
@@ -355,12 +408,12 @@ function defaultSettingsConfig(): SettingsConfigData {
                 local: { enabled: false, base_url: 'http://localhost:11434/v1' },
             },
             routing: {
-                epic_generation: 'quality',
-                story_generation: 'quality',
-                invest_validation: 'cheap',
-                story_splitting: 'cheap',
-                agent_prompt: 'cheap',
-                agents_md: 'cheap',
+                epic_generation: 'auto',
+                story_generation: 'auto',
+                invest_validation: 'auto',
+                story_splitting: 'auto',
+                agent_prompt: 'auto',
+                agents_md: 'auto',
             },
             budget: { confirm_above_usd: 0.5, show_token_preview: true },
         },

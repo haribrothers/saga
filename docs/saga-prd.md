@@ -314,25 +314,35 @@ Opened via `saga.openSettings` (Command Palette or the `⚙` sidebar toolbar but
 │                                                     │
 │  AI Provider                                        │
 │  ──────────────────────────────────────────         │
-│  Active provider                                    │
 │  ◉ VS Code LM API (Copilot)   [ Test ] ✓ Connected │
-│  ○ Local (Ollama / LM Studio)                       │
+│    [✓] Enable as fallback                           │
+│  ○ Local (Ollama / LM Studio) [ Test ]              │
 │    Base URL: [http://localhost:11434/v1        ]     │
-│             [ Test ]                                │
-│  ○ Anthropic (API Key)                              │
-│    Key: [••••••••••••••••••] [ Update Key ]         │
-│             [ Test ]                                │
-│  ○ Google Gemini (API Key)                          │
-│  ○ OpenAI (API Key)                                 │
+│    [✓] Enable as fallback                           │
+│  ○ Anthropic (API Key)        [ Test ]              │
+│    🔑 Key stored  [ Update Key ]                    │
+│    [✓] Enable prompt caching                        │
+│  ○ Google Gemini (API Key)    [ Test ]              │
+│    ⚠ No key stored  [ Add Key ]                    │
+│  ○ OpenAI (API Key)           [ Test ]              │
+│    ⚠ No key stored  [ Add Key ]                    │
 │                                                     │
 │  Model Routing                                      │
 │  ──────────────────────────────────────────         │
-│  Epic generation     [quality ▼]                    │
-│  Story generation    [quality ▼]                    │
-│  INVEST validation   [cheap   ▼]                    │
-│  Story splitting     [cheap   ▼]                    │
-│  Agent prompt        [cheap   ▼]                    │
-│  AGENTS.md           [cheap   ▼]                    │
+│  Models are fetched live from all enabled providers │
+│                                                     │
+│  Epic generation                                    │
+│  [claude-sonnet-4-6 (Anthropic)              ▼]    │
+│  Story generation                                   │
+│  [claude-sonnet-4-6 (Anthropic)              ▼]    │
+│  INVEST validation                                  │
+│  [claude-haiku-4-5 (Anthropic)               ▼]    │
+│  Story splitting                                    │
+│  [gemini-2.0-flash (Gemini)                  ▼]    │
+│  Agent prompt                                       │
+│  [auto — cheapest available                  ▼]    │
+│  AGENTS.md generation                              │
+│  [auto — cheapest available                  ▼]    │
 │                                                     │
 │  Tracker             (coming in M2)                 │
 │  ──────────────────────────────────────────         │
@@ -349,15 +359,17 @@ Opened via `saga.openSettings` (Command Palette or the `⚙` sidebar toolbar but
 
 **Behaviour:**
 - Non-secret fields (provider selection, base URL, model routing, budget) read from and write back to `.saga/config.yaml` — they remain git-tracked.
-- API keys are **write-only** from the UI: the key field shows masked dots if a key is stored in SecretStorage, and an **Update Key** button opens a VS Code Input Box to replace it. Keys are never read back into the Webview.
-- **Test** button per provider calls `LLMProvider.isAvailable()` and shows a one-line result inline (`✓ Connected` / `✗ Unreachable — check base URL` etc.).
+- API keys are **write-only** from the UI: the key field shows a key-present indicator if stored in SecretStorage, and an **Add Key / Update Key** button opens a VS Code Input Box to replace it. Keys are never read back into the Webview.
+- Clicking a provider's radio button immediately marks it as active and auto-enables it; the "Enable as fallback" checkbox controls whether non-active providers participate in the fallback chain.
+- **Test** button per provider calls `LLMProvider.isAvailable()` and shows a one-line result inline (`✓ Connected` / `✗ Unreachable` etc.).
+- **Model Routing** dropdowns are populated from live `listModels()` calls against all enabled providers at settings-open time. Each option shows `<model-id> (<provider>)`. A special **"auto — cheapest available"** option at the top of each list delegates model selection to Saga's tier-based auto-routing (the previous default behaviour). If no providers are enabled, dropdowns show a "No models available" placeholder.
 - **Tracker section** is visible but all fields are disabled with a "coming in M2" label — no functional code needed until M2.
 - Changes are not applied until **Save Settings** is clicked; unsaved changes show a "●" dirty indicator in the panel title.
 
 **Message contract (extension host ↔ Webview):**
-- `load` → sends current `ConfigData` (non-secret fields only) + `providerStatus` map (`{ [providerId]: 'connected' | 'unreachable' | 'unknown' }`)
+- `load` → sends current `ConfigData` (non-secret fields only) + `providerStatus` map + `secretsPresent` map + `availableModels: ModelOption[]` (fetched via `listModels()` from all enabled providers)
 - `save` ← Webview sends updated `ConfigData`; extension writes to `config.yaml`
-- `saveSecret` ← Webview triggers a VS Code Input Box in the extension host (key never travels through the Webview message bus)
+- `saveSecret` ← Webview triggers a VS Code Input Box in the extension host (key never travels through the Webview message bus); host re-sends `load` after storing so `secretsPresent` updates
 - `testConnection` ← Webview requests a live probe; extension responds with `connectionResult`
 - `saveAck` → confirms the write completed
 
@@ -492,15 +504,17 @@ ai:
       base_url: http://localhost:11434/v1   # Ollama default; LM Studio = http://localhost:1234/v1
       api_key_env: ""                        # usually unused for local
 
-  # Per-task routing. Each entry resolves to (provider, model).
-  # "auto" picks the cheapest enabled model that meets the task's quality bar.
+  # Per-task routing. Each entry names a specific model ID (string) OR "auto".
+  # "auto" falls back to tier-based selection: quality tasks pick the best
+  # available model; cheap tasks pick the fastest/cheapest enabled model.
+  # Model IDs are validated against the provider's live listModels() at runtime.
   routing:
-    epic_generation:    { tier: quality }     # e.g. sonnet-4-6 / gemini-pro / copilot-claude
-    story_generation:   { tier: quality }
-    invest_validation:  { tier: cheap }       # e.g. haiku-4-5 / gemini-flash / local
-    story_splitting:    { tier: cheap }
-    agent_prompt:       { tier: cheap }
-    agents_md:          { tier: cheap }        # codebase scan — cheap/local is fine
+    epic_generation:    claude-sonnet-4-6     # explicit model ID
+    story_generation:   claude-sonnet-4-6
+    invest_validation:  claude-haiku-4-5
+    story_splitting:    claude-haiku-4-5
+    agent_prompt:       auto                  # "auto" = tier-based fallback
+    agents_md:          auto
 
   models:                              # tier → preferred model per provider (override freely)
     quality:

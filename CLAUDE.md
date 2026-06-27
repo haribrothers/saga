@@ -6,13 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Saga is a VS Code extension that turns product briefs and technical designs into INVEST-compliant agile stories (with Gherkin acceptance criteria), pushes them to Jira Cloud or Azure DevOps, and keeps both sides in sync — all version-controlled in a `.saga/` folder inside the workspace. It also generates agent prompts and `AGENTS.md` for coding agents. See [docs/saga-prd.md](docs/saga-prd.md) for the full PRD.
 
-M0 and M1 are complete. Next milestone is M1.5 (Settings Webview — F23).
+M0, M1, and M1.5 are complete (Settings Webview shipped). Two known issues being fixed:
+1. **Provider selection radio** — selecting a non-active provider did not visually update due to a controlled component state issue.
+2. **Model routing** — upgraded from a quality/cheap tier toggle to a live per-task model picker populated from `listModels()` across all enabled providers, with an `"auto"` fallback option.
 
 **M0** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
 
-**M1** — Full generate pipeline: `ContextManager` (add/remove/load context files), `GenerationService` (epic + story generation via Handlebars + Zod + LLM), `InvestValidator` (heuristic + LLM-assisted INVEST scoring), `SagaTreeProvider` + `ContextTreeProvider` (sidebar tree views with file watchers), `StoryPanel` (React Webview story editor with Form/YAML tabs and INVEST badges), `saga-repo.ts` (typed YAML I/O layer), Zod schemas for all domain types. Commands: `saga.addContextFile`, `saga.generateEpics`, `saga.generateStoriesForEpic`, `saga.validateStories`, `saga.openStory`.
+**M1** — Full generate pipeline: `ContextManager`, `GenerationService`, `InvestValidator`, `SagaTreeProvider` + `ContextTreeProvider`, `StoryPanel` Webview, `saga-repo.ts`, Zod schemas. Commands: `saga.addContextFile`, `saga.generateEpics`, `saga.generateStoriesForEpic`, `saga.validateStories`, `saga.openStory`.
 
-**M1.5 (next)** — Settings Webview panel (`saga.openSettings`): GUI over `config.yaml` for provider selection + connection testing, model routing overrides, BYOK key entry (via SecretStorage — keys never travel through the Webview), budget controls. Tracker section visible but disabled until M2.
+**M1.5** — Settings Webview (`saga.openSettings`): provider selection + connection testing, per-task model picker (live `listModels()` per enabled provider, `"auto"` fallback), BYOK key entry via SecretStorage, budget controls. Routing schema in `config.yaml` changed from `{ tier: quality|cheap }` to a plain model ID string or `"auto"`.
 
 ## Commands
 
@@ -58,7 +60,7 @@ The extension is organized around two core interfaces:
 
 - **`TrackerAdapter`** — provider-agnostic tracker sync with adapters for Jira Cloud REST v3 and Azure DevOps REST.
 
-### Implemented modules (M0 + M1)
+### Implemented modules (M0 + M1 + M1.5)
 - `src/schema/index.ts` — Zod schemas: `Epic`, `Story`, `ContextEntry`, `InvestResult`, `Config`
 - `src/saga-repo.ts` — typed YAML I/O for epics, stories, config, context registry
 - `src/llm/` — `LLMProvider` interface + `VsCodeLmProvider` + `LocalLmProvider`
@@ -70,11 +72,16 @@ The extension is organized around two core interfaces:
 - `src/generation/service.ts` — `GenerationService` (LLM call → Zod parse → retry)
 - `src/invest/validator.ts` — `InvestValidator` (heuristic + LLM-assisted INVEST scoring)
 - `src/tree/saga-tree.ts` — `SagaTreeProvider` + `ContextTreeProvider` with file watchers
+- `src/webview/html.ts` — shared `getWebviewHtml()` that reads Vite's generated `index.html` at runtime and rewrites hashed asset URLs to `webview.asWebviewUri` — both panels use this
 - `src/webview/story-panel.ts` — extension-host side of the Story editor Webview
-- `webview-ui/` — React + Vite Webview bundle (story editor with Form/YAML tabs)
+- `src/webview/settings-panel.ts` — extension-host side of the Settings Webview; reads/writes `config.yaml`, proxies SecretStorage key entry, calls `listModels()` on enabled providers to populate the routing picker
+- `webview-ui/src/vscode-api.ts` — single `acquireVsCodeApi()` call shared by the whole bundle (calling it twice causes a VS Code runtime error)
+- `webview-ui/src/vscode.ts` — typed postMessage bridge for the Story panel (wraps `vscode-api.ts`)
+- `webview-ui/src/vscode-settings.ts` — typed postMessage bridge for the Settings panel (wraps `vscode-api.ts`)
+- `webview-ui/src/StoryEditor.tsx` — story editor (Form/YAML tabs, INVEST badges)
+- `webview-ui/src/SettingsEditor.tsx` — settings form (AI Provider, Model Routing with live model picker, Tracker placeholder, Budget)
 
-### Services (planned / in progress)
-- **Settings Service** — reads/writes `config.yaml`, proxies SecretStorage key entry, tests provider connectivity (M1.5)
+### Services (planned)
 - **Sync Engine** — 3-way diff between `.saga/`, last-synced snapshot, and live tracker state (M3)
 - **Prompt / AGENTS.md Service** — assembles context-aware agent prompts from stories + workspace files (M4)
 
@@ -131,6 +138,7 @@ Every command is reachable from **both** the Command Palette and the Saga sideba
 ## Key constraints
 
 - **AI provider**: Default to VS Code LM API (`vscode.lm.selectChatModels`). BYOK and local adapters are fallbacks. Class D (consumer OAuth token reuse) is permanently off the table — Anthropic blocked it January 2026, Google followed February 2026.
+- **Model routing**: `config.yaml` routing entries are either a specific model ID string (e.g. `claude-sonnet-4-6`) or `"auto"`. `"auto"` delegates to tier-based selection (quality/cheap). The Settings Webview populates the picker from live `listModels()` calls. Never hardcode model IDs in non-config code.
 - **Cost routing**: cheap models (Haiku, Flash) for validation/splitting/prompt assembly; quality tier (Sonnet, Gemini Pro) for epic/story generation. Prompt caching on the Anthropic adapter is the single biggest cost lever.
 - **Secrets**: use `context.secrets` (VS Code SecretStorage) for every credential. Zero secrets in `.saga/` or any committed file.
 - **Sync safety**: sync is always explicit (user-triggered), previews changes before applying, and is idempotent. No background auto-push.

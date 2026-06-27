@@ -4,7 +4,7 @@ import vscodeApi, {
     SettingsConfigData,
     ProviderId,
     ProviderStatus,
-    ModelTier,
+    ModelOption,
 } from './vscode-settings';
 import './settings.css';
 
@@ -14,36 +14,34 @@ interface SettingsState {
     config: SettingsConfigData | null;
     providerStatus: Record<ProviderId, ProviderStatus>;
     secretsPresent: Record<string, boolean>;
+    availableModels: ModelOption[];
     dirty: boolean;
     saving: boolean;
     testingProvider: ProviderId | null;
 }
 
 type Action =
-    | { type: 'LOAD'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean> }
+    | { type: 'LOAD'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean>; availableModels: ModelOption[] }
     | { type: 'UPDATE_CONFIG'; config: SettingsConfigData }
-    | { type: 'SAVE_ACK' }
+    | { type: 'SAVE_ACK'; availableModels: ModelOption[] }
     | { type: 'SAVING' }
     | { type: 'TESTING'; provider: ProviderId }
-    | { type: 'CONNECTION_RESULT'; provider: ProviderId; ok: boolean; message: string }
-    | { type: 'SECRETS_UPDATED'; secretsPresent: Record<string, boolean> };
+    | { type: 'CONNECTION_RESULT'; provider: ProviderId; ok: boolean; message: string };
 
 function reducer(state: SettingsState, action: Action): SettingsState {
     switch (action.type) {
         case 'LOAD':
-            return { ...state, config: action.config, providerStatus: action.providerStatus, secretsPresent: action.secretsPresent, dirty: false, saving: false };
+            return { ...state, config: action.config, providerStatus: action.providerStatus, secretsPresent: action.secretsPresent, availableModels: action.availableModels, dirty: false, saving: false };
         case 'UPDATE_CONFIG':
             return { ...state, config: action.config, dirty: true };
         case 'SAVING':
             return { ...state, saving: true };
         case 'SAVE_ACK':
-            return { ...state, saving: false, dirty: false };
+            return { ...state, saving: false, dirty: false, availableModels: action.availableModels };
         case 'TESTING':
             return { ...state, testingProvider: action.provider, providerStatus: { ...state.providerStatus, [action.provider]: 'testing' } };
         case 'CONNECTION_RESULT':
             return { ...state, testingProvider: null, providerStatus: { ...state.providerStatus, [action.provider]: action.ok ? 'connected' : 'unreachable' } };
-        case 'SECRETS_UPDATED':
-            return { ...state, secretsPresent: action.secretsPresent };
         default:
             return state;
     }
@@ -55,6 +53,7 @@ const initial: SettingsState = {
     config: null,
     providerStatus: { 'vscode-lm': 'unknown', anthropic: 'unknown', gemini: 'unknown', openai: 'unknown', local: 'unknown' },
     secretsPresent: {},
+    availableModels: [],
     dirty: false,
     saving: false,
     testingProvider: null,
@@ -69,9 +68,9 @@ export function SettingsEditor() {
         const handler = (event: MessageEvent<SettingsExtensionToWebview>) => {
             const msg = event.data;
             if (msg.type === 'load') {
-                dispatch({ type: 'LOAD', config: msg.config, providerStatus: msg.providerStatus, secretsPresent: msg.secretsPresent });
+                dispatch({ type: 'LOAD', config: msg.config, providerStatus: msg.providerStatus, secretsPresent: msg.secretsPresent, availableModels: msg.availableModels });
             } else if (msg.type === 'saveAck') {
-                dispatch({ type: 'SAVE_ACK' });
+                dispatch({ type: 'SAVE_ACK', availableModels: msg.availableModels });
             } else if (msg.type === 'connectionResult') {
                 dispatch({ type: 'CONNECTION_RESULT', provider: msg.provider, ok: msg.ok, message: msg.message });
             }
@@ -128,7 +127,7 @@ export function SettingsEditor() {
                     onSaveSecret={handleSaveSecret}
                 />
 
-                <RoutingSection config={state.config} onChangeConfig={setConfig} />
+                <RoutingSection config={state.config} availableModels={state.availableModels} onChangeConfig={setConfig} />
 
                 <TrackerSection />
 
@@ -161,9 +160,14 @@ function ProviderSection({
     onSaveSecret: (p: ProviderId) => void;
 }) {
     const setActive = (id: ProviderId) => {
+        // Batch: mark as active AND ensure it is enabled, in a single update.
         onChangeConfig({
             ...config,
-            ai: { ...config.ai, default_provider: id },
+            ai: {
+                ...config.ai,
+                default_provider: id,
+                providers: { ...config.ai.providers, [id]: { ...config.ai.providers[id], enabled: true } },
+            },
         });
     };
 
@@ -215,7 +219,7 @@ function ProviderSection({
                                         type="radio"
                                         name="active-provider"
                                         checked={isActive}
-                                        onChange={() => { setActive(id); setProviderEnabled(id, true); }}
+                                        onChange={() => setActive(id)}
                                     />
                                     <span className="provider-name">{meta.label}</span>
                                     {isActive && <span className="badge badge--active">active</span>}
@@ -311,44 +315,58 @@ function StatusDot({ status }: { status: ProviderStatus }) {
 
 // ─── Routing section ──────────────────────────────────────────────────────────
 
-const ROUTING_TASKS: Array<{ key: keyof SettingsConfigData['ai']['routing']; label: string }> = [
-    { key: 'epic_generation', label: 'Epic generation' },
-    { key: 'story_generation', label: 'Story generation' },
-    { key: 'invest_validation', label: 'INVEST validation' },
-    { key: 'story_splitting', label: 'Story splitting' },
-    { key: 'agent_prompt', label: 'Agent prompt assembly' },
-    { key: 'agents_md', label: 'AGENTS.md generation' },
+const ROUTING_TASKS: Array<{ key: keyof SettingsConfigData['ai']['routing']; label: string; defaultTier: 'quality' | 'cheap' }> = [
+    { key: 'epic_generation',   label: 'Epic generation',       defaultTier: 'quality' },
+    { key: 'story_generation',  label: 'Story generation',      defaultTier: 'quality' },
+    { key: 'invest_validation', label: 'INVEST validation',     defaultTier: 'cheap'   },
+    { key: 'story_splitting',   label: 'Story splitting',       defaultTier: 'cheap'   },
+    { key: 'agent_prompt',      label: 'Agent prompt assembly', defaultTier: 'cheap'   },
+    { key: 'agents_md',         label: 'AGENTS.md generation',  defaultTier: 'cheap'   },
 ];
 
-function RoutingSection({ config, onChangeConfig }: { config: SettingsConfigData; onChangeConfig: (c: SettingsConfigData) => void }) {
-    const setTier = (key: keyof SettingsConfigData['ai']['routing'], tier: ModelTier) => {
+function RoutingSection({
+    config,
+    availableModels,
+    onChangeConfig,
+}: {
+    config: SettingsConfigData;
+    availableModels: ModelOption[];
+    onChangeConfig: (c: SettingsConfigData) => void;
+}) {
+    const setModel = (key: keyof SettingsConfigData['ai']['routing'], modelId: string) => {
         onChangeConfig({
             ...config,
-            ai: { ...config.ai, routing: { ...config.ai.routing, [key]: tier } },
+            ai: { ...config.ai, routing: { ...config.ai.routing, [key]: modelId } },
         });
     };
+
+    const hasModels = availableModels.length > 0;
 
     return (
         <Section title="Model Routing">
             <p className="section-desc">
-                Choose the model tier per task. <strong>Quality</strong> (Sonnet / Gemini Pro) gives better story structure;
-                <strong> Cheap</strong> (Haiku / Flash / local) is faster and cheaper for validation tasks.
+                Choose a specific model for each task, or select <strong>auto</strong> to let Saga pick the best available model.
+                Models are loaded from your enabled providers.
+                {!hasModels && <span className="routing-no-models"> Enable at least one provider and save to see available models.</span>}
             </p>
             <div className="routing-grid">
                 {ROUTING_TASKS.map(({ key, label }) => (
                     <div key={key} className="routing-row">
-                        <span className="routing-label">{label}</span>
-                        <div className="tier-toggle">
-                            {(['quality', 'cheap'] as ModelTier[]).map((tier) => (
-                                <button
-                                    key={tier}
-                                    className={`tier-btn ${config.ai.routing[key] === tier ? 'tier-btn--active' : ''}`}
-                                    onClick={() => setTier(key, tier)}
-                                >
-                                    {tier}
-                                </button>
+                        <label className="routing-label" htmlFor={`routing-${key}`}>{label}</label>
+                        <select
+                            id={`routing-${key}`}
+                            className="input-select routing-select"
+                            value={config.ai.routing[key]}
+                            onChange={(e) => setModel(key, e.target.value)}
+                        >
+                            <option value="auto">auto — let Saga decide</option>
+                            {availableModels.length > 0 && <option disabled>──────────</option>}
+                            {availableModels.map((m) => (
+                                <option key={`${m.provider}:${m.id}`} value={m.id}>
+                                    {m.displayName}
+                                </option>
                             ))}
-                        </div>
+                        </select>
                     </div>
                 ))}
             </div>

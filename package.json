@@ -86,7 +86,7 @@
       {
         "view": "saga.storiesView",
         "contents": "Saga is not initialized in this workspace.\n\n[Initialize Saga](command:saga.init)\n\nThis will create a .saga/ folder with a default config.",
-        "when": "workspaceFolderCount > 0"
+        "when": "workspaceFolderCount > 0 && !saga.initialized"
       }
     ],
     "menus": {
