@@ -19,19 +19,112 @@
         "category": "Saga"
       },
       {
+        "command": "saga.addContextFile",
+        "title": "Saga: Add Context File",
+        "category": "Saga",
+        "icon": "$(add)"
+      },
+      {
+        "command": "saga.generateEpics",
+        "title": "Saga: Generate Epics",
+        "category": "Saga",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "saga.generateStoriesForEpic",
+        "title": "Saga: Generate Stories for Epic",
+        "category": "Saga",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "saga.validateStories",
+        "title": "Saga: Validate Stories",
+        "category": "Saga",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "saga.openStory",
+        "title": "Saga: Open Story",
+        "category": "Saga"
+      },
+      {
         "command": "saga.testGeneration",
         "title": "Saga: Test Generation",
         "category": "Saga"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "saga",
+          "title": "Saga",
+          "icon": "$(book)"
+        }
+      ]
+    },
+    "views": {
+      "saga": [
+        {
+          "id": "saga.storiesView",
+          "name": "Epics & Stories",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "id": "saga.contextView",
+          "name": "Context Files",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "saga.storiesView",
+        "contents": "Saga is not initialized in this workspace.\n\n[Initialize Saga](command:saga.init)\n\nThis will create a .saga/ folder with a default config.",
+        "when": "workspaceFolderCount > 0"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "saga.addContextFile",
+          "when": "view == saga.contextView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.generateEpics",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.validateStories",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "saga.generateStoriesForEpic",
+          "when": "viewItem == sagaEpic",
+          "group": "inline"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "saga.addContextFile",
+          "group": "saga@1"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "compile:webview": "vite build",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "watch:webview": "vite build --watch",
+    "package": "npm run check-types && npm run lint && npm run compile:webview && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
@@ -40,19 +133,35 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.125.0",
+    "@types/handlebars": "^4.0.40",
     "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
-    "eslint": "^10.5.0",
-    "esbuild": "^0.28.1",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^6.0.3",
+    "@types/node": "^24.13.2",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "^1.125.0",
+    "@vitejs/plugin-react": "^6.0.3",
     "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "npm-run-all": "^4.1.5",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
+    "vite": "^8.1.0"
   },
   "overrides": {
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "@cucumber/gherkin": "^41.0.0",
+    "handlebars": "^4.7.9",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   }
 }
