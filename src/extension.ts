@@ -187,13 +187,23 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── saga.generateStoriesForEpic ────────────────────────────────────────────
     const generateStoriesCmd = vscode.commands.registerCommand(
         'saga.generateStoriesForEpic',
-        async (epicId?: string) => {
+        async (arg?: string | { id?: string; epic?: { id: string } }) => {
             const root = requireRoot();
             if (!root || !(await requireInit(root))) {return;}
 
             const sagaRoot = getSagaRoot(root);
 
-            // If not invoked from tree (no epicId), ask the user to pick one
+            // arg may be a string ID (palette), an EpicTreeItem object (inline button),
+            // or undefined (palette with no selection). Extract the ID in all cases.
+            let epicId: string | undefined;
+            if (typeof arg === 'string') {
+                epicId = arg;
+            } else if (arg && typeof arg === 'object') {
+                // EpicTreeItem exposes .epic.id; fall back to .id for safety
+                epicId = (arg as { epic?: { id: string } }).epic?.id ?? (arg as { id?: string }).id;
+            }
+
+            // If still no epicId, show a picker
             if (!epicId) {
                 const epics = await listEpics(sagaRoot);
                 if (epics.length === 0) {
