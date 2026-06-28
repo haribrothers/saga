@@ -162,6 +162,7 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F23 | Settings page Webview — GUI over `config.yaml` + SecretStorage credential entry | P0 |
 | F24 | Inline text context — paste/type free-form text as additional context without creating a file | P0 |
 | F25 | Delete epics, stories, and full cleanup — right-click delete with confirmation; `Saga: Clean Up` command | P0 |
+| F26 | Token usage visibility — input/output token counts logged after every generation run; shown in Generation Review panel header and Saga Output Channel | P0 |
 
 ### UI surface notes
 - Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
@@ -399,7 +400,7 @@ The typed text is appended to the generation prompt as a `## Additional Instruct
 │  Saga — Generated Epics                  [↺ Regenerate] [×] │
 ├─────────────────────────────────────────────────────────────┤
 │  Model: claude-sonnet-4-6 (Anthropic)                       │
-│  3 epics generated from 2 context files                     │
+│  3 epics · 2 context files · 4,821 in / 612 out tokens      │
 │                                                             │
 │  ┌─ EPIC-001 ───────────────────────────────────────────┐   │
 │  │ Title       [Guest Checkout                        ] │   │
@@ -425,7 +426,7 @@ The typed text is appended to the generation prompt as a `## Additional Instruct
 │  Saga — Generated Stories: EPIC-001       [↺ Regen] [×]    │
 ├─────────────────────────────────────────────────────────────┤
 │  Model: claude-sonnet-4-6 (Anthropic)                       │
-│  4 stories generated                                        │
+│  4 stories · 2 context files · 6,103 in / 1,847 out tokens  │
 │                                                             │
 │  ┌─ STORY-001 ── [draft] ── INVEST: ✓✓⚠✓✓✓ ── [✕] ──────┐  │
 │  │ Guest checkout — happy path                            │  │
@@ -460,9 +461,9 @@ The typed text is appended to the generation prompt as a `## Additional Instruct
 - **Discard** — closes without writing anything. Asks for confirmation if items were edited.
 
 **Message contract (extension host ↔ Webview):**
-- `load` → `{ epics | stories, modelLabel, contextFileCount }`
+- `load` → `{ epics | stories, modelLabel, contextFileCount, tokenUsage?: { inputTokens, outputTokens, note } }`
 - `validate` ← Webview requests INVEST run; host responds with `{ type: 'investResults', results: Record<storyId, InvestResult> }`
-- `refine` ← `{ items, instructions }`; host re-calls LLM and responds with `{ type: 'refined', items }`
+- `refine` ← `{ items, instructions }`; host re-calls LLM and responds with `{ type: 'refined', items, tokenUsage? }`
 - `regenerate` ← triggers a fresh generation run; host responds with a new `load`
 - `save` ← `{ items }`; host writes to disk and sends `{ type: 'saveAck' }`
 
@@ -521,6 +522,20 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 - `"auto"` falls back to tier-based selection (quality tasks → best available model, cheap tasks → fastest).
 - The resolved model ID and provider are shown in the progress notification and in the Generation Review panel header.
 - If the configured model is unavailable, Saga warns and falls back to the next available model rather than failing silently.
+
+**Token usage visibility (F26):**
+- After every generation or refinement call, Saga captures and displays input + output token counts.
+- Displayed in two places: (a) the Generation Review panel header line — `<N> in / <N> out tokens`; (b) the `Saga` Output Channel — one line per call: `✓ story_generation: 6,103 in / 1,847 out · claude-sonnet-4-6 (Anthropic)`.
+- Token count availability by provider:
+
+| Provider | Input tokens | Output tokens |
+|---|---|---|
+| **Local (Ollama / LM Studio)** | Exact — returned by the OpenAI-compatible API | Exact |
+| **VS Code LM (Copilot)** | Estimated — `model.countTokens()` called before the request | Estimated — character count ÷ 4 (rough heuristic) |
+| **BYOK (Anthropic / Gemini / OpenAI)** | Exact — returned by provider SDKs (wired in M4) | Exact |
+
+- Estimated counts are labelled `(est.)` in the UI so users know the precision.
+- On Copilot there is no marginal cost, so token counts are informational only — useful for understanding prompt size relative to context window limits.
 
 **LLM output:**
 - Strict YAML schema prompt → Zod parse → auto-retry on parse failure (up to 2 attempts).
@@ -595,6 +610,8 @@ For users on the BYOK path, Saga is designed around three levers, in priority or
 1. **Prompt caching — the biggest win.** Saga's context bundle (product brief + technical design + coding standards) is identical across every generation call in a session. Cached input bills at roughly 10% of the standard input rate, so Saga caches the bundle once and pays ~10% on every reuse. This alone turns a multi-story generation run from dollars into cents.
 2. **Task-based model routing.** Cheap, fast models handle the high-volume/low-stakes tasks; the stronger tier is reserved for actual story drafting. The tier spread is 5–25x, so this is a large multiplier on cost.
 3. **Batch API for bulk, non-interactive runs** (e.g. "generate stories for all 6 epics") — ~50% off, processed asynchronously.
+
+**Token transparency (F26):** Saga logs input/output token counts after every call to the `Saga` Output Channel and surfaces them in the Generation Review panel header. This gives BYOK users a clear view of consumption without requiring a separate dashboard. For VS Code LM (Copilot) users, counts are estimated and cost-free; for BYOK users they map directly to spend at the provider's published rates.
 
 Reference pricing (verify against live provider pages before shipping; lineups move):
 
@@ -748,6 +765,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M1 — Generate** | Context registration (F2), epic/story generation (F3, F4), INVEST validator (F5), tree view + editor (F6) | End-to-end: docs → reviewed stories in `.saga/`, no tracker yet |
 | **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
 | **M1.6 — Generation UX** | Generation Review Webview (F3, F4, F5): pre-generation instructions input, interactive review panel with inline editing, INVEST validation badges, per-story and bulk refinement via LLM; inline text context (F24); delete epics/stories/cleanup (F25); model routing resolution wired to config.yaml; model label shown in progress + panel | Full human-in-the-loop generation flow with refinement |
+| **M1.7 — Token visibility** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local and BYOK (M4) | Users can see exactly how much context is being sent and received |
 | **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push | Stories appear in the tracker |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |
