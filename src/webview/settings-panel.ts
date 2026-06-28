@@ -43,25 +43,50 @@ export interface SettingsConfigData {
     };
     tracker: {
         default: 'jira' | 'ado' | 'none';
+        jira: {
+            base_url: string;
+            project_key: string;
+            email: string;
+            epic_issue_type: string;
+            story_issue_type: string;
+            ac_field_id: string;
+            epic_link_style: 'parent' | 'customfield_10014';
+        };
+        ado: {
+            org_url: string;
+            project: string;
+            area_path: string;
+            epic_work_item_type: string;
+            story_work_item_type: string;
+        };
     };
 }
 
 type ExtensionToWebview =
     | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean>; availableModels: ModelOption[] }
     | { type: 'saveAck'; availableModels: ModelOption[] }
-    | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string };
+    | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string }
+    | { type: 'trackerConnectionResult'; tracker: 'jira' | 'ado'; ok: boolean; message: string };
 
 type WebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; config: SettingsConfigData }
     | { type: 'testConnection'; provider: ProviderId }
-    | { type: 'saveSecret'; provider: ProviderId };
+    | { type: 'saveSecret'; provider: ProviderId }
+    | { type: 'saveTrackerSecret'; tracker: 'jira' | 'ado' }
+    | { type: 'testTrackerConnection'; tracker: 'jira' | 'ado' };
 
-// Secret storage keys per provider
+// Secret storage keys per AI provider
 const SECRET_KEYS: Partial<Record<ProviderId, SecretKeyName>> = {
     anthropic: SecretKey.ANTHROPIC_API_KEY,
     gemini: SecretKey.GEMINI_API_KEY,
     openai: SecretKey.OPENAI_API_KEY,
+};
+
+// Secret storage keys per tracker
+const TRACKER_SECRET_KEYS: Record<'jira' | 'ado', SecretKeyName> = {
+    jira: SecretKey.JIRA_API_TOKEN,
+    ado: SecretKey.ADO_PAT,
 };
 
 // ─── Panel ────────────────────────────────────────────────────────────────────
@@ -132,6 +157,16 @@ export class SettingsPanel {
             // After storing, re-send load so secretsPresent reflects the new state
             await this.sendLoad();
         }
+
+        if (msg.type === 'saveTrackerSecret') {
+            await this.promptForTrackerSecret(msg.tracker);
+            await this.sendLoad();
+        }
+
+        if (msg.type === 'testTrackerConnection') {
+            const result = await this.testTrackerConnection(msg.tracker);
+            this.post({ type: 'trackerConnectionResult', tracker: msg.tracker, ...result });
+        }
     }
 
     // ─── Load ─────────────────────────────────────────────────────────────────
@@ -175,7 +210,25 @@ export class SettingsPanel {
                         show_token_preview: raw.ai.budget?.show_token_preview ?? true,
                     },
                 },
-                tracker: { default: raw.tracker.default },
+                tracker: {
+                    default: raw.tracker.default,
+                    jira: {
+                        base_url: raw.tracker.jira?.base_url ?? '',
+                        project_key: raw.tracker.jira?.project_key ?? '',
+                        email: raw.tracker.jira?.email ?? '',
+                        epic_issue_type: raw.tracker.jira?.epic_issue_type ?? 'Epic',
+                        story_issue_type: raw.tracker.jira?.story_issue_type ?? 'Story',
+                        ac_field_id: raw.tracker.jira?.ac_field_id ?? 'description',
+                        epic_link_style: raw.tracker.jira?.epic_link_style ?? 'parent',
+                    },
+                    ado: {
+                        org_url: raw.tracker.ado?.org_url ?? '',
+                        project: raw.tracker.ado?.project ?? '',
+                        area_path: raw.tracker.ado?.area_path ?? '',
+                        epic_work_item_type: raw.tracker.ado?.epic_work_item_type ?? 'Epic',
+                        story_work_item_type: raw.tracker.ado?.story_work_item_type ?? 'User Story',
+                    },
+                },
             };
         } catch {
             return defaultSettingsConfig();
@@ -215,6 +268,18 @@ export class SettingsPanel {
         setIn(doc, ['ai', 'budget', 'confirm_above_usd'], data.ai.budget.confirm_above_usd);
         setIn(doc, ['ai', 'budget', 'show_token_preview'], data.ai.budget.show_token_preview);
         setIn(doc, ['tracker', 'default'], data.tracker.default);
+        setIn(doc, ['tracker', 'jira', 'base_url'],          data.tracker.jira.base_url);
+        setIn(doc, ['tracker', 'jira', 'project_key'],        data.tracker.jira.project_key);
+        setIn(doc, ['tracker', 'jira', 'email'],              data.tracker.jira.email);
+        setIn(doc, ['tracker', 'jira', 'epic_issue_type'],    data.tracker.jira.epic_issue_type);
+        setIn(doc, ['tracker', 'jira', 'story_issue_type'],   data.tracker.jira.story_issue_type);
+        setIn(doc, ['tracker', 'jira', 'ac_field_id'],        data.tracker.jira.ac_field_id);
+        setIn(doc, ['tracker', 'jira', 'epic_link_style'],    data.tracker.jira.epic_link_style);
+        setIn(doc, ['tracker', 'ado', 'org_url'],             data.tracker.ado.org_url);
+        setIn(doc, ['tracker', 'ado', 'project'],             data.tracker.ado.project);
+        setIn(doc, ['tracker', 'ado', 'area_path'],           data.tracker.ado.area_path);
+        setIn(doc, ['tracker', 'ado', 'epic_work_item_type'], data.tracker.ado.epic_work_item_type);
+        setIn(doc, ['tracker', 'ado', 'story_work_item_type'],data.tracker.ado.story_work_item_type);
 
         await vscode.workspace.fs.writeFile(configUri, Buffer.from(doc.toString(), 'utf-8'));
     }
@@ -370,11 +435,86 @@ export class SettingsPanel {
         }
     }
 
+    private async promptForTrackerSecret(tracker: 'jira' | 'ado'): Promise<void> {
+        const key = TRACKER_SECRET_KEYS[tracker];
+        const label = tracker === 'jira' ? 'Jira API Token' : 'Azure DevOps Personal Access Token (PAT)';
+        const input = await vscode.window.showInputBox({
+            title: label,
+            prompt: 'Enter the token. It will be stored in VS Code SecretStorage and never written to disk.',
+            password: true,
+            ignoreFocusOut: true,
+            validateInput: (v) => v.trim().length < 8 ? 'Token looks too short.' : undefined,
+        });
+        if (input?.trim()) {
+            await this.secrets.set(key, input.trim());
+        }
+    }
+
+    private async testTrackerConnection(tracker: 'jira' | 'ado'): Promise<{ ok: boolean; message: string }> {
+        // Lazy import to avoid pulling tracker code into the settings panel module unnecessarily.
+        const { JiraAdapter } = await import('../tracker/jira.js');
+        const { AdoAdapter } = await import('../tracker/ado.js');
+        const sagaRoot = getSagaRoot(this.workspaceRoot);
+
+        try {
+            const config = await readConfig(sagaRoot);
+            if (tracker === 'jira') {
+                const jiraCfg = config.tracker.jira;
+                if (!jiraCfg?.base_url || !jiraCfg.email) {
+                    return { ok: false, message: 'Jira base URL and email are required.' };
+                }
+                const token = await this.secrets.get(SecretKey.JIRA_API_TOKEN);
+                if (!token) {
+                    return { ok: false, message: 'No Jira API token stored. Click "Update Token" to add one.' };
+                }
+                const adapter = new JiraAdapter({
+                    baseUrl: jiraCfg.base_url,
+                    email: jiraCfg.email,
+                    apiToken: token,
+                    config: {
+                        projectKey: jiraCfg.project_key,
+                        email: jiraCfg.email,
+                        epicIssueType: jiraCfg.epic_issue_type,
+                        storyIssueType: jiraCfg.story_issue_type,
+                        acFieldId: jiraCfg.ac_field_id,
+                        epicLinkStyle: jiraCfg.epic_link_style,
+                    },
+                });
+                return adapter.testConnection();
+            } else {
+                const adoCfg = config.tracker.ado;
+                if (!adoCfg?.org_url || !adoCfg.project) {
+                    return { ok: false, message: 'ADO org URL and project are required.' };
+                }
+                const pat = await this.secrets.get(SecretKey.ADO_PAT);
+                if (!pat) {
+                    return { ok: false, message: 'No ADO PAT stored. Click "Update PAT" to add one.' };
+                }
+                const adapter = new AdoAdapter({
+                    orgUrl: adoCfg.org_url,
+                    pat,
+                    config: {
+                        project: adoCfg.project,
+                        areaPath: adoCfg.area_path,
+                        epicWorkItemType: adoCfg.epic_work_item_type,
+                        storyWorkItemType: adoCfg.story_work_item_type,
+                    },
+                });
+                return adapter.testConnection();
+            }
+        } catch (err) {
+            return { ok: false, message: err instanceof Error ? err.message : String(err) };
+        }
+    }
+
     private async checkSecretsPresent(): Promise<Record<string, boolean>> {
         const result: Record<string, boolean> = {};
         for (const [provider, key] of Object.entries(SECRET_KEYS) as [string, SecretKeyName][]) {
             result[provider] = await this.secrets.has(key);
         }
+        // Include tracker secrets
+        result['jira'] = await this.secrets.has(TRACKER_SECRET_KEYS.jira);
+        result['ado'] = await this.secrets.has(TRACKER_SECRET_KEYS.ado);
         return result;
     }
 
@@ -417,6 +557,10 @@ function defaultSettingsConfig(): SettingsConfigData {
             },
             budget: { confirm_above_usd: 0.5, show_token_preview: true },
         },
-        tracker: { default: 'none' },
+        tracker: {
+            default: 'none',
+            jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', ac_field_id: 'description', epic_link_style: 'parent' },
+            ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story' },
+        },
     };
 }

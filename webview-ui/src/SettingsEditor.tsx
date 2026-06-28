@@ -18,6 +18,8 @@ interface SettingsState {
     dirty: boolean;
     saving: boolean;
     testingProvider: ProviderId | null;
+    testingTracker: 'jira' | 'ado' | null;
+    trackerStatus: Partial<Record<'jira' | 'ado', { ok: boolean; message: string }>>;
 }
 
 type Action =
@@ -26,7 +28,9 @@ type Action =
     | { type: 'SAVE_ACK'; availableModels: ModelOption[] }
     | { type: 'SAVING' }
     | { type: 'TESTING'; provider: ProviderId }
-    | { type: 'CONNECTION_RESULT'; provider: ProviderId; ok: boolean; message: string };
+    | { type: 'CONNECTION_RESULT'; provider: ProviderId; ok: boolean; message: string }
+    | { type: 'TESTING_TRACKER'; tracker: 'jira' | 'ado' }
+    | { type: 'TRACKER_CONNECTION_RESULT'; tracker: 'jira' | 'ado'; ok: boolean; message: string };
 
 function reducer(state: SettingsState, action: Action): SettingsState {
     switch (action.type) {
@@ -42,6 +46,10 @@ function reducer(state: SettingsState, action: Action): SettingsState {
             return { ...state, testingProvider: action.provider, providerStatus: { ...state.providerStatus, [action.provider]: 'testing' } };
         case 'CONNECTION_RESULT':
             return { ...state, testingProvider: null, providerStatus: { ...state.providerStatus, [action.provider]: action.ok ? 'connected' : 'unreachable' } };
+        case 'TESTING_TRACKER':
+            return { ...state, testingTracker: action.tracker };
+        case 'TRACKER_CONNECTION_RESULT':
+            return { ...state, testingTracker: null, trackerStatus: { ...state.trackerStatus, [action.tracker]: { ok: action.ok, message: action.message } } };
         default:
             return state;
     }
@@ -57,6 +65,8 @@ const initial: SettingsState = {
     dirty: false,
     saving: false,
     testingProvider: null,
+    testingTracker: null,
+    trackerStatus: {},
 };
 
 // ─── Root component ───────────────────────────────────────────────────────────
@@ -73,6 +83,8 @@ export function SettingsEditor() {
                 dispatch({ type: 'SAVE_ACK', availableModels: msg.availableModels });
             } else if (msg.type === 'connectionResult') {
                 dispatch({ type: 'CONNECTION_RESULT', provider: msg.provider, ok: msg.ok, message: msg.message });
+            } else if (msg.type === 'trackerConnectionResult') {
+                dispatch({ type: 'TRACKER_CONNECTION_RESULT', tracker: msg.tracker, ok: msg.ok, message: msg.message });
             }
         };
         window.addEventListener('message', handler);
@@ -97,6 +109,15 @@ export function SettingsEditor() {
 
     const handleSaveSecret = useCallback((provider: ProviderId) => {
         vscodeApi.postMessage({ type: 'saveSecret', provider });
+    }, []);
+
+    const handleSaveTrackerSecret = useCallback((tracker: 'jira' | 'ado') => {
+        vscodeApi.postMessage({ type: 'saveTrackerSecret', tracker });
+    }, []);
+
+    const handleTestTracker = useCallback((tracker: 'jira' | 'ado') => {
+        dispatch({ type: 'TESTING_TRACKER', tracker });
+        vscodeApi.postMessage({ type: 'testTrackerConnection', tracker });
     }, []);
 
     if (!state.config) {
@@ -129,7 +150,15 @@ export function SettingsEditor() {
 
                 <RoutingSection config={state.config} availableModels={state.availableModels} onChangeConfig={setConfig} />
 
-                <TrackerSection />
+                <TrackerSection
+                    config={state.config}
+                    secretsPresent={state.secretsPresent}
+                    testingTracker={state.testingTracker}
+                    trackerStatus={state.trackerStatus}
+                    onChangeConfig={setConfig}
+                    onSaveTrackerSecret={handleSaveTrackerSecret}
+                    onTestTracker={handleTestTracker}
+                />
 
                 <BudgetSection config={state.config} onChangeConfig={setConfig} />
             </div>
@@ -376,14 +405,165 @@ function RoutingSection({
 
 // ─── Tracker section ──────────────────────────────────────────────────────────
 
-function TrackerSection() {
+function TrackerSection({
+    config,
+    secretsPresent,
+    testingTracker,
+    trackerStatus,
+    onChangeConfig,
+    onSaveTrackerSecret,
+    onTestTracker,
+}: {
+    config: SettingsConfigData;
+    secretsPresent: Record<string, boolean>;
+    testingTracker: 'jira' | 'ado' | null;
+    trackerStatus: Partial<Record<'jira' | 'ado', { ok: boolean; message: string }>>;
+    onChangeConfig: (c: SettingsConfigData) => void;
+    onSaveTrackerSecret: (t: 'jira' | 'ado') => void;
+    onTestTracker: (t: 'jira' | 'ado') => void;
+}) {
+    const setDefault = (value: 'jira' | 'ado' | 'none') => {
+        onChangeConfig({ ...config, tracker: { ...config.tracker, default: value } });
+    };
+    const setJira = (patch: Partial<SettingsConfigData['tracker']['jira']>) => {
+        onChangeConfig({ ...config, tracker: { ...config.tracker, jira: { ...config.tracker.jira, ...patch } } });
+    };
+    const setAdo = (patch: Partial<SettingsConfigData['tracker']['ado']>) => {
+        onChangeConfig({ ...config, tracker: { ...config.tracker, ado: { ...config.tracker.ado, ...patch } } });
+    };
+
     return (
         <Section title="Tracker">
-            <div className="coming-soon-banner">
-                <span className="badge badge--soon">Coming in M2</span>
-                <p>Jira Cloud and Azure DevOps sync will be configurable here once the push adapter is implemented.</p>
+            <p className="section-desc">Connect Saga to Jira Cloud or Azure DevOps to push epics and stories.</p>
+
+            <div className="field">
+                <label className="field-label">Default tracker</label>
+                <select
+                    className="input-select"
+                    value={config.tracker.default}
+                    onChange={(e) => setDefault(e.target.value as 'jira' | 'ado' | 'none')}
+                >
+                    <option value="none">None</option>
+                    <option value="jira">Jira Cloud</option>
+                    <option value="ado">Azure DevOps</option>
+                </select>
             </div>
+
+            {/* Jira config */}
+            {config.tracker.default === 'jira' && (
+                <div className="tracker-fields">
+                    <h3 className="tracker-subheading">Jira Cloud</h3>
+                    <TrackerField label="Base URL" placeholder="https://myorg.atlassian.net"
+                        value={config.tracker.jira.base_url} onChange={(v) => setJira({ base_url: v })} />
+                    <TrackerField label="Project Key" placeholder="PROJ"
+                        value={config.tracker.jira.project_key} onChange={(v) => setJira({ project_key: v })} />
+                    <TrackerField label="Email" placeholder="you@example.com"
+                        value={config.tracker.jira.email} onChange={(v) => setJira({ email: v })} />
+
+                    <div className="provider-key-row">
+                        <span className="key-status">
+                            {secretsPresent['jira'] ? '🔑 API token stored' : '⚠ No API token stored'}
+                        </span>
+                        <button className="btn-ghost" onClick={() => onSaveTrackerSecret('jira')}>
+                            {secretsPresent['jira'] ? 'Update Token' : 'Add Token'}
+                        </button>
+                    </div>
+
+                    <div className="field">
+                        <label className="field-label">Epic link style</label>
+                        <select className="input-select"
+                            value={config.tracker.jira.epic_link_style}
+                            onChange={(e) => setJira({ epic_link_style: e.target.value as 'parent' | 'customfield_10014' })}>
+                            <option value="parent">Parent field (Next-Gen / Team-Managed)</option>
+                            <option value="customfield_10014">Epic Link field (Classic)</option>
+                        </select>
+                    </div>
+
+                    <div className="tracker-advanced">
+                        <details>
+                            <summary className="tracker-advanced-toggle">Advanced field settings</summary>
+                            <div className="tracker-advanced-body">
+                                <TrackerField label="Epic issue type" placeholder="Epic"
+                                    value={config.tracker.jira.epic_issue_type} onChange={(v) => setJira({ epic_issue_type: v })} />
+                                <TrackerField label="Story issue type" placeholder="Story"
+                                    value={config.tracker.jira.story_issue_type} onChange={(v) => setJira({ story_issue_type: v })} />
+                                <TrackerField label="Acceptance criteria field ID" placeholder="description"
+                                    value={config.tracker.jira.ac_field_id} onChange={(v) => setJira({ ac_field_id: v })} />
+                            </div>
+                        </details>
+                    </div>
+
+                    <TrackerTestButton tracker="jira" testing={testingTracker === 'jira'} status={trackerStatus['jira']} onTest={onTestTracker} />
+                </div>
+            )}
+
+            {/* ADO config */}
+            {config.tracker.default === 'ado' && (
+                <div className="tracker-fields">
+                    <h3 className="tracker-subheading">Azure DevOps</h3>
+                    <TrackerField label="Organization URL" placeholder="https://dev.azure.com/myorg"
+                        value={config.tracker.ado.org_url} onChange={(v) => setAdo({ org_url: v })} />
+                    <TrackerField label="Project" placeholder="MyProject"
+                        value={config.tracker.ado.project} onChange={(v) => setAdo({ project: v })} />
+                    <TrackerField label="Area Path (optional)" placeholder="MyProject\\MyTeam"
+                        value={config.tracker.ado.area_path} onChange={(v) => setAdo({ area_path: v })} />
+
+                    <div className="provider-key-row">
+                        <span className="key-status">
+                            {secretsPresent['ado'] ? '🔑 PAT stored' : '⚠ No PAT stored'}
+                        </span>
+                        <button className="btn-ghost" onClick={() => onSaveTrackerSecret('ado')}>
+                            {secretsPresent['ado'] ? 'Update PAT' : 'Add PAT'}
+                        </button>
+                    </div>
+
+                    <div className="tracker-advanced">
+                        <details>
+                            <summary className="tracker-advanced-toggle">Advanced field settings</summary>
+                            <div className="tracker-advanced-body">
+                                <TrackerField label="Epic work item type" placeholder="Epic"
+                                    value={config.tracker.ado.epic_work_item_type} onChange={(v) => setAdo({ epic_work_item_type: v })} />
+                                <TrackerField label="Story work item type" placeholder="User Story"
+                                    value={config.tracker.ado.story_work_item_type} onChange={(v) => setAdo({ story_work_item_type: v })} />
+                            </div>
+                        </details>
+                    </div>
+
+                    <TrackerTestButton tracker="ado" testing={testingTracker === 'ado'} status={trackerStatus['ado']} onTest={onTestTracker} />
+                </div>
+            )}
         </Section>
+    );
+}
+
+function TrackerField({ label, placeholder, value, onChange }: {
+    label: string; placeholder: string; value: string; onChange: (v: string) => void;
+}) {
+    return (
+        <div className="field">
+            <label className="field-label">{label}</label>
+            <input className="input-text" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+        </div>
+    );
+}
+
+function TrackerTestButton({ tracker, testing, status, onTest }: {
+    tracker: 'jira' | 'ado';
+    testing: boolean;
+    status: { ok: boolean; message: string } | undefined;
+    onTest: (t: 'jira' | 'ado') => void;
+}) {
+    return (
+        <div className="tracker-test-row">
+            <button className="btn-ghost" onClick={() => onTest(tracker)} disabled={testing}>
+                {testing ? 'Testing…' : 'Test Connection'}
+            </button>
+            {status && (
+                <span className={`provider-status-msg provider-status-msg--${status.ok ? 'connected' : 'unreachable'}`}>
+                    {status.ok ? '✓' : '✗'} {status.message}
+                </span>
+            )}
+        </div>
     );
 }
 

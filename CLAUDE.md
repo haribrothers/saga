@@ -29,7 +29,27 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 - **F26 (token usage):** `TokenUsage { inputTokens, outputTokens, estimated? }` in `LLMResponse`. VS Code LM uses `model.countTokens()` for input estimate, `content.length / 4` for output, labelled `(est.)`. Local provider returns exact API counts. `GenerationService` returns `GenerationResult<T> { items, usage? }`. Usage logged to Saga Output Channel per call and shown in Generation Review panel header.
 - **F27 (cancellation):** `withProgress cancellable: true` on both generation commands. `CancellationToken` → `AbortController` → `AbortSignal` threaded through `GenerationService.callWithRetry` into `provider.generate({ signal })`. `onRegenerate` callback also receives and honours `AbortSignal`. Abort caught cleanly — info notification shown, no error dialog, review panel not opened.
 
-**Next: M2 — Push** — Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push.
+**M2 ✓ Complete** — One-way push to Jira Cloud and Azure DevOps:
+- `TrackerAdapter` interface + `PushResult` / `ConnectionTestResult` / `TrackerError` types (`src/tracker/adapter.ts`)
+- `JiraAdapter` — Jira Cloud REST v3, Basic auth (email + API token), create/update epics & stories, ADF description, Next-Gen `parent` link or Classic `customfield_10014` Epic Link (`src/tracker/jira.ts`)
+- `AdoAdapter` — Azure DevOps REST, PAT auth, JSON Patch work-item create/update, epic hierarchy link (`src/tracker/ado.ts`)
+- `field-mapping.ts` — Saga domain → Jira ADF issue fields / ADO JSON Patch operations; Gherkin AC, story points, labels
+- `hash.ts` — SHA-256 over canonical fields for drift detection (`local_hash`, `last_synced_hash`)
+- `sync-store.ts` — `.saga/.sync/mappings.json` read/write for remote key/URL/hash persistence
+- `factory.ts` — `buildTrackerAdapter(root, secrets)` reads config + SecretStorage and returns the active adapter
+- Settings Webview tracker section unlocked: Jira Cloud + ADO config forms, Test Connection, credential entry via SecretStorage; new messages `saveTrackerSecret` / `testTrackerConnection` / `trackerConnectionResult`
+- Commands: `saga.pushEpic`, `saga.pushStory` — create or update; write `remote:` block + `local_hash` back to YAML; persist to sync store; "Open in Browser" action on success
+- Tree decorations: epics show `[PROJ-10 ✓]` / `[drifted ●]`; stories show `[synced ✓]` / `[drifted ●]` based on live hash comparison
+- Schema additions: `jira.epic_issue_type`, `story_issue_type`, `ac_field_id`, `epic_link_style`; `ado.area_path`, `epic_work_item_type`, `story_work_item_type`
+
+**M2.1 ✓ Complete** — Push UX improvements:
+
+- **F15b — Epic-first enforcement:** `saga.pushStory` blocks if the parent epic hasn't been pushed yet. Shows a modal with the epic ID and a "Push Epic" shortcut action. Prevents orphaned stories in the tracker.
+- **F15c — Post-epic push offer:** After `saga.pushEpic` succeeds, the success notification gains a **"Push Stories"** action that pushes all stories under that epic in sequence using the same adapter. Already-synced stories are updated, not re-created.
+- **F15d — Tracker-aware delete:** When deleting a pushed epic or story, show a 3-option modal: "Delete from [Jira/ADO] & locally", "Delete locally only", "Cancel". If remote delete fails (403, network), surface the error and ask "Delete locally anyway?" — never silently trap the user. Requires `deleteEpic(epic)` / `deleteStory(story)` on `TrackerAdapter`, `JiraAdapter`, and `AdoAdapter`.
+- **F15 — Bulk push:** `saga.pushAll` command + "↑ Push All" sidebar toolbar button. Pushes all unpushed/drifted epics first (in EPIC-NNN order), then all their stories. Progress notification with running counter. Summary on completion. Failures continue (don't abort the batch) and are listed in the Output Channel.
+
+**Next: M3 — Sync** — Pull from tracker + two-way sync + 3-way conflict resolution (F11), status decorations (F14).
 
 ## Commands
 

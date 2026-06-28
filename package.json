@@ -81,6 +81,24 @@
         "category": "Saga"
       },
       {
+        "command": "saga.pushEpic",
+        "title": "Saga: Push Epic to Tracker",
+        "category": "Saga",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "saga.pushStory",
+        "title": "Saga: Push Story to Tracker",
+        "category": "Saga",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "saga.pushAll",
+        "title": "Saga: Push All to Tracker",
+        "category": "Saga",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "saga.openSettings",
         "title": "Saga: Open Settings",
         "category": "Saga",
@@ -140,6 +158,11 @@
           "group": "navigation"
         },
         {
+          "command": "saga.pushAll",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
           "command": "saga.validateStories",
           "when": "view == saga.storiesView",
           "group": "navigation"
@@ -157,6 +180,11 @@
           "group": "inline"
         },
         {
+          "command": "saga.pushEpic",
+          "when": "viewItem == sagaEpic",
+          "group": "inline"
+        },
+        {
           "command": "saga.deleteEpic",
           "when": "viewItem == sagaEpic",
           "group": "saga@1"
@@ -165,6 +193,11 @@
           "command": "saga.clearStoriesForEpic",
           "when": "viewItem == sagaEpic",
           "group": "saga@2"
+        },
+        {
+          "command": "saga.pushStory",
+          "when": "viewItem == sagaStory",
+          "group": "inline"
         },
         {
           "command": "saga.deleteStory",

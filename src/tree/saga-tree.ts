@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Epic, Story, StoryStatus } from '../schema';
 import { listEpics, listStories } from '../saga-repo';
+import { hashEpic, hashStory } from '../tracker/hash';
 
 // ─── Tree item types ──────────────────────────────────────────────────────────
 
@@ -15,10 +16,15 @@ export class EpicTreeItem extends vscode.TreeItem {
     ) {
         super(epic.title, vscode.TreeItemCollapsibleState.Collapsed);
         this.id = epic.id;
-        this.description = `${epic.id} · ${storyCount} ${storyCount === 1 ? 'story' : 'stories'}`;
+
+        const syncBadge = epicSyncBadge(epic);
+        const storyLabel = `${storyCount} ${storyCount === 1 ? 'story' : 'stories'}`;
+        this.description = syncBadge
+            ? `${epic.id} · ${storyLabel}  ${syncBadge}`
+            : `${epic.id} · ${storyLabel}`;
         this.tooltip = epic.description ?? epic.title;
         this.contextValue = 'sagaEpic';
-        this.iconPath = new vscode.ThemeIcon('symbol-module');
+        this.iconPath = epicIcon(epic);
     }
 }
 
@@ -28,10 +34,12 @@ export class StoryTreeItem extends vscode.TreeItem {
     constructor(readonly story: Story) {
         super(story.title, vscode.TreeItemCollapsibleState.None);
         this.id = story.id;
-        this.description = `${story.id}  ${statusBadge(story.status)}`;
+
+        const effectiveStatus = storyEffectiveStatus(story);
+        this.description = `${story.id}  ${statusBadge(effectiveStatus)}`;
         this.tooltip = `${story.as_a} wants ${story.i_want}`;
         this.contextValue = 'sagaStory';
-        this.iconPath = statusIcon(story.status);
+        this.iconPath = statusIcon(effectiveStatus);
         this.command = {
             command: 'saga.openStory',
             title: 'Open Story',
@@ -151,22 +159,56 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextFileI
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function statusBadge(status: StoryStatus): string {
-    const badges: Record<StoryStatus, string> = {
+/**
+ * Computes the effective display status for a story, accounting for local drift.
+ * A story with a remote key whose local content has changed since last sync is
+ * shown as "drifted" rather than "synced", even if story.status === 'synced'.
+ */
+function storyEffectiveStatus(story: Story): StoryStatus | 'drifted' {
+    if (story.status === 'synced' && story.remote?.last_synced_hash) {
+        const currentHash = hashStory(story);
+        if (currentHash !== story.remote.last_synced_hash) {
+            return 'drifted';
+        }
+    }
+    return story.status;
+}
+
+function statusBadge(status: StoryStatus | 'drifted'): string {
+    const badges: Record<StoryStatus | 'drifted', string> = {
         draft: '[draft]',
         ready: '[ready]',
         synced: '[synced ✓]',
+        drifted: '[drifted ●]',
         'in-progress': '[in-progress]',
         done: '[done]',
     };
     return badges[status] ?? `[${status}]`;
 }
 
-function statusIcon(status: StoryStatus): vscode.ThemeIcon {
+function statusIcon(status: StoryStatus | 'drifted'): vscode.ThemeIcon {
     switch (status) {
-        case 'synced': return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
-        case 'ready':  return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
-        case 'done':   return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green'));
-        default:       return new vscode.ThemeIcon('circle-outline');
+        case 'synced':  return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
+        case 'drifted': return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.yellow'));
+        case 'ready':   return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
+        case 'done':    return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green'));
+        default:        return new vscode.ThemeIcon('circle-outline');
     }
+}
+
+/** Badge shown next to an epic's description when it has been pushed. */
+function epicSyncBadge(epic: Epic): string | undefined {
+    if (!epic.remote?.key) { return undefined; }
+    const currentHash = hashEpic(epic);
+    const isDrifted = epic.remote.last_synced_hash && currentHash !== epic.remote.last_synced_hash;
+    return isDrifted ? `[drifted ●]` : `[${epic.remote.key} ✓]`;
+}
+
+function epicIcon(epic: Epic): vscode.ThemeIcon {
+    if (!epic.remote?.key) { return new vscode.ThemeIcon('symbol-module'); }
+    const currentHash = hashEpic(epic);
+    const isDrifted = epic.remote.last_synced_hash && currentHash !== epic.remote.last_synced_hash;
+    return isDrifted
+        ? new vscode.ThemeIcon('symbol-module', new vscode.ThemeColor('charts.yellow'))
+        : new vscode.ThemeIcon('symbol-module', new vscode.ThemeColor('charts.green'));
 }

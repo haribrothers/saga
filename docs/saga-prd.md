@@ -151,7 +151,10 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F12 | Per-story "Generate agent prompt" with codebase context | P0 |
 | F13 | Generate/refresh root `AGENTS.md` from codebase + standards | P0 |
 | F14 | Sync status decorations (synced / drifted / conflict) in the tree | P1 |
-| F15 | Bulk operations (generate N stories, bulk push, bulk re-validate) | P1 |
+| F15 | Bulk push — push all unpushed/drifted epics then their stories in one action; progress per item; summary notification | P0 |
+| F15b | Epic-first push enforcement — block `saga.pushStory` if the parent epic has not been pushed yet; prompt user to push the epic first | P0 |
+| F15c | Push stories after epic — after `saga.pushEpic` succeeds, offer "Push Stories" in the success notification to push all stories under that epic | P0 |
+| F15d | Tracker-aware delete — when deleting a pushed epic or story, offer to delete it from the tracker first; if the remote delete fails (e.g. permissions), ask "Delete locally anyway?" rather than silently blocking | P0 |
 | F16 | Template customization (story format, prompt format) via `templates/` | P1 |
 | F17 | Story splitting assistant (acts on INVEST "small" warnings) | P1 |
 | F18 | Dependency/links between stories and epics, mapped to tracker links | P1 |
@@ -489,6 +492,7 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 | `Saga: Clean Up` | Palette | F25; removes all epics, stories, prompts, and context; type `"delete all"` to confirm |
 | `Saga: Generate Agent Prompt` | Palette + story right-click | F12 |
 | `Saga: Generate AGENTS.md` | Palette + sidebar toolbar | F13 |
+| `Saga: Push All to Tracker` | Palette + sidebar `↑` toolbar button | F15; pushes all unpushed/drifted epics then stories; progress per item |
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
 | `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) |
 | `Saga: Test Generation` | Palette only (dev/debug) | M0 smoke test; removed pre-publish |
@@ -560,14 +564,53 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 - Each criterion returns `pass | warn | fail` with a one-line reason.
 - "Small = warn/fail" offers the **split assistant** (F17): proposes 2–3 smaller stories preserving acceptance coverage.
 
-### 8.4 Delete & cleanup (F25)
+### 8.4 Push behaviour (F9, F10, F15b, F15c, F15d)
+
+#### Epic-first enforcement (F15b)
+`saga.pushStory` checks whether the parent epic has been pushed to the configured tracker before proceeding. If the epic has no `remote.key` for the active provider, Saga blocks the push with:
+> *"EPIC-001 hasn't been pushed to Jira yet. Push the epic first so the story can be linked to it."*
+
+A **Push Epic** action in that message lets the user jump straight to pushing the epic. This prevents stories from landing in the tracker as orphans with no parent link.
+
+#### Post-epic push offer (F15c)
+After `saga.pushEpic` succeeds, the success notification offers two actions alongside "Open in Browser":
+> **Push Stories** — pushes all stories under that epic in sequence using the same adapter.
+
+Stories that are already synced are updated (not re-created). Stories that have never been pushed are created with the parent link set to the just-pushed epic key.
+
+#### Tracker-aware delete (F15d)
+When the user deletes an epic or story that has a `remote.key` for the currently configured tracker, Saga adds a remote-delete step:
+
+1. **Warning modal** includes the tracker key: *"STORY-001 is synced to PROJ-42 in Jira. Delete from Jira too?"*
+2. Buttons: **Delete from Jira & locally**, **Delete locally only**, **Cancel**
+3. If "Delete from Jira & locally" is chosen:
+   - Saga calls `adapter.deleteStory(story)` / `adapter.deleteEpic(epic)`
+   - If the remote delete **succeeds** → proceed with local trash delete
+   - If the remote delete **fails** (e.g. 403 Forbidden, network error) → show the error and ask: *"Remote delete failed: [reason]. Delete locally anyway?"*
+   - If the user confirms → local delete proceeds; `remote:` block is cleared from the YAML; sync store entry is removed
+4. If "Delete locally only" is chosen → local delete proceeds immediately; `remote:` block is preserved in the YAML for reference (useful if the user wants to manually clean up the tracker later)
+
+This requires `deleteEpic(epic)` and `deleteStory(story)` methods on the `TrackerAdapter` interface.
+
+#### Bulk push (F15)
+`saga.pushAll` pushes all epics and stories in a single operation:
+1. Collects all unpushed epics (no `remote.key`) + drifted epics (hash mismatch)
+2. Pushes epics first, in EPIC-NNN order — so parent keys are available for story linking
+3. Then pushes all unpushed/drifted stories, resolving parent key from the just-pushed epics
+4. Progress shown via `withProgress` with a running counter: *"Pushing… 3 / 14"*
+5. Summary notification on completion: *"Pushed 3 epics, 11 stories to Jira. 0 failed."*
+6. If any item fails, the others continue; failures are listed in the Saga Output Channel
+
+Surface: **"↑ Push All"** button in the Epics & Stories sidebar toolbar (`view/title` menu, `saga.storiesView`).
+
+### 8.5 Delete & cleanup (F25)
 
 Four levels of deletion, from most targeted to most destructive:
 
 | Operation | Trigger | Scope | Confirmation |
 |---|---|---|---|
-| **Delete Story** | Right-click → Delete Story | Single `.saga/stories/STORY-NNN.yaml` | Modal confirm |
-| **Delete Epic** | Right-click → Delete Epic | Single `.saga/epics/EPIC-NNN.yaml`; offers to delete child stories | Modal confirm × 2 if stories exist |
+| **Delete Story** | Right-click → Delete Story | Single `.saga/stories/STORY-NNN.yaml` | Modal confirm; tracker-aware if pushed (F15d) |
+| **Delete Epic** | Right-click → Delete Epic | Single `.saga/epics/EPIC-NNN.yaml`; offers to delete child stories | Modal confirm × 2 if stories exist; tracker-aware if pushed (F15d) |
 | **Clear Stories for Epic** | Right-click on epic → Clear Stories | All stories whose `epic:` field matches the selected epic | Modal confirm naming the epic |
 | **Clear All Epics** | Command Palette `Saga: Clear Epics` | All files in `.saga/epics/` and all files in `.saga/stories/` | Modal confirm |
 | **Clean Up** | Command Palette `Saga: Clean Up` | Everything in `.saga/epics/`, `.saga/stories/`, `.saga/prompts/`, `.saga/context/` | Modal confirm + type `"delete all"` |
@@ -787,7 +830,8 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
 | **M1.6 — Generation UX** | Generation Review Webview (F3, F4, F5): pre-generation instructions input, interactive review panel with inline editing, INVEST validation badges, per-story and bulk refinement via LLM; inline text context (F24); delete epics/stories/cleanup (F25); model routing resolution wired to config.yaml; model label shown in progress + panel | Full human-in-the-loop generation flow with refinement |
 | **M1.7 — Generation quality** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local and BYOK (M4). Generation cancellation (F27): `cancellable: true` in progress notification; `AbortSignal` propagated through `GenerationService` → `LLMProvider`; clean "cancelled" notification on abort | Users can see token consumption and stop a generation mid-flight |
-| **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push | Stories appear in the tracker |
+| **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push; `TrackerAdapter` interface, hash/sync-store, Settings Webview tracker section, `saga.pushEpic` + `saga.pushStory`, tree synced/drifted badges | Stories appear in the tracker |
+| **M2.1 — Push UX** | Epic-first enforcement (F15b): block story push if parent epic not yet pushed. Post-epic push offer (F15c): "Push Stories" action after epic push. Tracker-aware delete (F15d): offer remote delete when deleting a pushed item; graceful fallback if remote delete fails. Bulk push (F15): `saga.pushAll` command + sidebar button — push all unpushed/drifted epics then stories in order, progress per item. `deleteEpic`/`deleteStory` on `TrackerAdapter`. | Push flow is safe, guided, and efficient |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |
 | **M5 — Polish & publish** | Templates (F16), bulk ops (F15), splitting assistant (F17), docs, telemetry opt-in | Marketplace release |

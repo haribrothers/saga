@@ -157,10 +157,41 @@ export const ConfigSchema = z.object({
             base_url: z.string(),
             project_key: z.string(),
             email: z.string(),
+            /** Jira issue type name for epics. Default: "Epic". */
+            epic_issue_type: z.string().default('Epic'),
+            /** Jira issue type name for stories. Default: "Story". */
+            story_issue_type: z.string().default('Story'),
+            /**
+             * Field ID for acceptance criteria.
+             * Use "description" (default) to append AC to the description block,
+             * or a custom field ID (e.g. "customfield_10020") for a dedicated field.
+             */
+            ac_field_id: z.string().default('description'),
+            /**
+             * How to link a story to its parent epic.
+             * "parent" = Next-Gen / Team-Managed projects (Jira Cloud default since 2022).
+             * "customfield_10014" = classic projects using the legacy Epic Link field.
+             */
+            epic_link_style: z.enum(['parent', 'customfield_10014']).default('parent'),
+            /**
+             * Custom field ID for story points. Omit to skip story points on push
+             * (avoids 400 on projects where the field isn't on the create screen).
+             * Common values: "customfield_10016" (classic), "customfield_10028" (next-gen).
+             */
+            story_points_field_id: z.string().optional(),
         }).optional(),
         ado: z.object({
             org_url: z.string(),
             project: z.string(),
+            /** ADO area path for new work items, e.g. "MyProject\\MyTeam". Optional. */
+            area_path: z.string().optional(),
+            /** Work item type for epics. Default: "Epic". */
+            epic_work_item_type: z.string().default('Epic'),
+            /**
+             * Work item type for stories.
+             * "User Story" for Agile, "Product Backlog Item" for Scrum, "Issue" for Basic.
+             */
+            story_work_item_type: z.string().default('User Story'),
         }).optional(),
     }),
 });

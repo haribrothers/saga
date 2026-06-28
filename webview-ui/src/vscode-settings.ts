@@ -45,6 +45,22 @@ export interface SettingsConfigData {
     };
     tracker: {
         default: 'jira' | 'ado' | 'none';
+        jira: {
+            base_url: string;
+            project_key: string;
+            email: string;
+            epic_issue_type: string;
+            story_issue_type: string;
+            ac_field_id: string;
+            epic_link_style: 'parent' | 'customfield_10014';
+        };
+        ado: {
+            org_url: string;
+            project: string;
+            area_path: string;
+            epic_work_item_type: string;
+            story_work_item_type: string;
+        };
     };
 }
 
@@ -53,10 +69,13 @@ export interface SettingsConfigData {
 export type SettingsExtensionToWebview =
     | { type: 'load'; config: SettingsConfigData; providerStatus: Record<ProviderId, ProviderStatus>; secretsPresent: Record<string, boolean>; availableModels: ModelOption[] }
     | { type: 'saveAck'; availableModels: ModelOption[] }
-    | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string };
+    | { type: 'connectionResult'; provider: ProviderId; ok: boolean; message: string }
+    | { type: 'trackerConnectionResult'; tracker: 'jira' | 'ado'; ok: boolean; message: string };
 
 export type SettingsWebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; config: SettingsConfigData }
     | { type: 'testConnection'; provider: ProviderId }
-    | { type: 'saveSecret'; provider: ProviderId };
+    | { type: 'saveSecret'; provider: ProviderId }
+    | { type: 'saveTrackerSecret'; tracker: 'jira' | 'ado' }
+    | { type: 'testTrackerConnection'; tracker: 'jira' | 'ado' };
