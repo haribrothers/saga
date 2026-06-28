@@ -205,11 +205,11 @@ export async function activate(context: vscode.ExtensionContext) {
             tokenUsage: result.usage,
             workspaceRoot: root,
             extensionUri: context.extensionUri,
-            onRegenerate: async () => {
+            onRegenerate: async (signal) => {
                 const r = await resolveProviderFromConfig('epic_generation', root) ?? resolved;
                 const service = new GenerationService(r.provider);
                 const startId = await nextEpicId(sagaRoot);
-                const fresh = await service.generateEpics(contextTexts, startId, instructions);
+                const fresh = await service.generateEpics(contextTexts, startId, instructions, signal);
                 logTokenUsage('epic_generation', r.modelLabel, fresh.usage);
                 return { epics: fresh.items, stories: [], modelLabel: r.modelLabel, tokenUsage: fresh.usage };
             },
@@ -301,11 +301,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 tokenUsage: storyResult.usage,
                 workspaceRoot: root,
                 extensionUri: context.extensionUri,
-                onRegenerate: async () => {
+                onRegenerate: async (signal) => {
                     const r = await resolveProviderFromConfig('story_generation', root) ?? resolved;
                     const service = new GenerationService(r.provider);
                     const startId = await nextStoryId(sagaRoot);
-                    const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions);
+                    const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions, signal);
                     logTokenUsage('story_generation', r.modelLabel, fresh.usage);
                     return { epics: [], stories: fresh.items, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
                 },

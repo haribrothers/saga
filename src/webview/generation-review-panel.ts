@@ -64,8 +64,8 @@ export interface GenerationReviewOptions {
     tokenUsage?: TokenUsage;
     workspaceRoot: vscode.Uri;
     extensionUri: vscode.Uri;
-    /** Called when user clicks Regenerate — re-runs generation and reloads the panel. */
-    onRegenerate: () => Promise<{ epics: Epic[]; stories: Story[]; modelLabel: string; tokenUsage?: TokenUsage }>;
+    /** Called when user clicks Regenerate — re-runs generation and reloads the panel. Signal allows mid-flight cancellation. */
+    onRegenerate: (signal: AbortSignal) => Promise<{ epics: Epic[]; stories: Story[]; modelLabel: string; tokenUsage?: TokenUsage }>;
 }
 
 export class GenerationReviewPanel {
@@ -187,15 +187,22 @@ export class GenerationReviewPanel {
     // ─── Regenerate ───────────────────────────────────────────────────────────
 
     private async runRegenerate(): Promise<void> {
+        const abort = new AbortController();
+        // Store controller so a future dispose could cancel it; for now it runs to completion or error.
         try {
-            const result = await this._opts.onRegenerate();
+            const result = await this._opts.onRegenerate(abort.signal);
             this._opts.epics = result.epics;
             this._opts.stories = result.stories;
             this._opts.modelLabel = result.modelLabel;
             this._opts.tokenUsage = result.tokenUsage;
             await this.sendLoad();
         } catch (err) {
-            this.post({ type: 'error', message: String(err) });
+            const isAbort = err instanceof Error &&
+                (err.name === 'AbortError' || err.message.includes('aborted'));
+            if (!isAbort) {
+                this.post({ type: 'error', message: String(err) });
+            }
+            // Silently swallow abort — panel stays open with previous content
         }
     }
 

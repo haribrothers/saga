@@ -6,34 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Saga is a VS Code extension that turns product briefs and technical designs into INVEST-compliant agile stories (with Gherkin acceptance criteria), pushes them to Jira Cloud or Azure DevOps, and keeps both sides in sync — all version-controlled in a `.saga/` folder inside the workspace. It also generates agent prompts and `AGENTS.md` for coding agents. See [docs/saga-prd.md](docs/saga-prd.md) for the full PRD.
 
-M0, M1, M1.5, and M1.6 are complete. **M1.7 is next** — Token usage visibility (F26).
+## Milestone status
 
-**M1.7 scope (next milestone) — two features, both small:**
+**M0 ✓ Complete** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
 
-**F26 — Token usage visibility:**
-- Capture input/output token counts from `LLMResponse.usage` after every generation and refinement call.
-- **VS Code LM (Copilot):** estimate input via `model.countTokens()` before the call; estimate output as `content.length / 4`. Label as `(est.)`.
-- **Local (Ollama/LM Studio):** already returns exact counts in `response.usage` from the OpenAI-compatible API.
-- **BYOK:** exact counts will come from provider SDKs when wired in M4.
-- Surface in two places: (a) Generation Review panel header — `<N> in / <N> out tokens [est.]`; (b) `Saga` Output Channel — one line per call.
-- `GenerationService` accumulates and returns `TokenUsage` alongside generated content.
-- `GenerationReviewPanel` includes `tokenUsage` in the `load` and `refined` messages to the Webview.
+**M1 ✓ Complete** — Full generate pipeline: `ContextManager`, `GenerationService`, `InvestValidator`, `SagaTreeProvider` + `ContextTreeProvider`, `StoryPanel` Webview, `saga-repo.ts`, Zod schemas for all domain types. Commands: `saga.addContextFile`, `saga.generateEpics`, `saga.generateStoriesForEpic`, `saga.validateStories`, `saga.openStory`.
 
-**F27 — Generation cancellation:**
-- `withProgress` → `cancellable: true` on `generateEpics` and `generateStoriesForEpic`.
-- `withProgress` callback receives a VS Code `CancellationToken` — wrap it in an `AbortController` and pass the `AbortSignal` down into `GenerationService`.
-- `GenerationService.generateEpics/generateStories/refineEpics/refineStories` accept an optional `AbortSignal` and forward it into `callWithRetry` → `provider.generate({ signal })`.
-- Both providers already handle `signal`: `VsCodeLmProvider` uses `signalToToken()`, `LocalLmProvider` passes to `fetch`. No provider changes needed.
-- On cancellation: catch the abort error, show `vscode.window.showInformationMessage('Generation cancelled.')`, do NOT open the review panel.
-- The `onRegenerate` callback in `GenerationReviewPanel` also needs to receive and honour the signal.
+**M1.5 ✓ Complete** — Settings Webview (`saga.openSettings`): provider selection + live connection testing, per-task model picker populated from `listModels()` per enabled provider (`"auto"` fallback), BYOK key entry via SecretStorage (key never travels through the Webview), budget controls. Routing schema in `config.yaml` is a plain model ID string or `"auto"` (legacy `{ tier }` form coerced).
 
-**M0** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
+**M1.6 ✓ Complete** — Generation UX overhaul:
+- `GenerationReviewPanel` — interactive review panel for epics and stories: inline edit all fields, INVEST badges per story, per-story and bulk Refine (LLM follow-up), Validate All, Regenerate, Save/Discard
+- Pre-generation Additional Instructions Input Box (optional free text appended to LLM prompt)
+- `resolveProviderFromConfig(task, workspaceRoot)` reads `config.yaml` routing — model routing now actually used during generation
+- `saga.addInlineContext` (F24) — stores free-form text as `.saga/context/inline-NNN.md`
+- `saga.deleteEpic`, `saga.deleteStory` — individual delete with modal confirm
+- `saga.clearStoriesForEpic` — clears all stories under a selected epic
+- `saga.clearEpics` — clears all epics + all stories
+- `saga.cleanUp` — full workspace cleanup (double confirmation)
+- Sibling epics passed to story generation prompt to prevent scope bleed across epics
 
-**M1** — Full generate pipeline: `ContextManager`, `GenerationService`, `InvestValidator`, `SagaTreeProvider` + `ContextTreeProvider`, `StoryPanel` Webview, `saga-repo.ts`, Zod schemas. Commands: `saga.addContextFile`, `saga.generateEpics`, `saga.generateStoriesForEpic`, `saga.validateStories`, `saga.openStory`.
+**M1.7 ✓ Complete** — Token visibility + cancellation:
+- **F26 (token usage):** `TokenUsage { inputTokens, outputTokens, estimated? }` in `LLMResponse`. VS Code LM uses `model.countTokens()` for input estimate, `content.length / 4` for output, labelled `(est.)`. Local provider returns exact API counts. `GenerationService` returns `GenerationResult<T> { items, usage? }`. Usage logged to Saga Output Channel per call and shown in Generation Review panel header.
+- **F27 (cancellation):** `withProgress cancellable: true` on both generation commands. `CancellationToken` → `AbortController` → `AbortSignal` threaded through `GenerationService.callWithRetry` into `provider.generate({ signal })`. `onRegenerate` callback also receives and honours `AbortSignal`. Abort caught cleanly — info notification shown, no error dialog, review panel not opened.
 
-**M1.5** — Settings Webview (`saga.openSettings`): provider selection + connection testing, per-task model picker (live `listModels()` per enabled provider, `"auto"` fallback), BYOK key entry via SecretStorage, budget controls. Routing schema in `config.yaml` changed from `{ tier: quality|cheap }` to a plain model ID string or `"auto"`.
-
-**M1.6** — Generation UX overhaul: `GenerationReviewPanel` (interactive review, inline edit, INVEST badges, per-story + bulk refine, regenerate, save/discard); pre-generation Additional Instructions Input Box; `resolveProviderFromConfig()` reads routing from config; `saga.addInlineContext` (F24); `saga.deleteEpic`, `saga.deleteStory`, `saga.cleanUp` (F25); sibling epics passed to story generation prompt to prevent scope bleed. F25 extended with `saga.clearStoriesForEpic` (right-click on epic → clear all its stories) and `saga.clearEpics` (palette → clear all epics + all stories) — two new scoped cleanup operations sitting between individual delete and full clean up.
+**Next: M2 — Push** — Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push.
 
 ## Commands
 
@@ -44,10 +40,13 @@ npm run check-types
 # Lint only
 npm run lint
 
-# Build (type-check + lint + esbuild)
+# Build extension (type-check + lint + esbuild)
 npm run compile
 
-# Build for production (minified, no sourcemap)
+# Build webview (Vite + React)
+npm run compile:webview
+
+# Build for production (both targets, minified)
 npm run package
 
 # Watch mode (esbuild + tsc in parallel)
@@ -55,114 +54,106 @@ npm run watch
 
 # Run tests (compiles first)
 npm test
-
-# Compile tests only
-npm run compile-tests
 ```
 
-To launch the extension in a VS Code Extension Development Host: press **F5** in VS Code (uses `.vscode/launch.json`).
+To launch in the Extension Development Host: press **F5** in VS Code (uses `.vscode/launch.json`).
+Run `npm run package` before F5 whenever Webview source has changed.
 
 ## Architecture
 
 ### Entry point
-`src/extension.ts` exports `activate(context)` and `deactivate()`. All commands, tree views, and webview panels are registered here via `context.subscriptions`.
+`src/extension.ts` exports `async activate(context)` and `deactivate()`. All commands, tree views, and Webview panels are registered here via `context.subscriptions`. Module-level helpers: `getSagaChannel()`, `logTokenUsage()`, `isAbortError()`.
 
 ### Module structure
 
-The extension is organized around two core interfaces:
+Two core interfaces carry extensibility:
 
-- **`LLMProvider`** — provider-agnostic AI access with three adapter implementations:
-  - VS Code LM API (default — uses the user's Copilot seat)
-  - Direct API key / BYOK (Anthropic, Gemini, OpenAI)
-  - Local OpenAI-compatible (Ollama at `localhost:11434/v1`, LM Studio at `localhost:1234/v1`)
-  - **Never** reuse consumer OAuth tokens (Claude Pro/Gemini AI Pro) — this is prohibited by vendor terms.
+- **`LLMProvider`** (`src/llm/provider.ts`) — provider-agnostic AI access. Adapters: `VsCodeLmProvider` (Copilot), `LocalLmProvider` (Ollama/LM Studio). BYOK adapters come in M4.
+- **`TrackerAdapter`** — provider-agnostic tracker sync (M2+).
 
-- **`TrackerAdapter`** — provider-agnostic tracker sync with adapters for Jira Cloud REST v3 and Azure DevOps REST.
+### Implemented modules
 
-### Implemented modules (M0 + M1 + M1.5)
-- `src/schema/index.ts` — Zod schemas: `Epic`, `Story`, `ContextEntry`, `InvestResult`, `Config`
-- `src/saga-repo.ts` — typed YAML I/O for epics, stories, config, context registry
-- `src/llm/` — `LLMProvider` interface + `VsCodeLmProvider` + `LocalLmProvider`
-- `src/secrets.ts` — `SecretsManager` wrapping VS Code SecretStorage
-- `src/saga-fs.ts` — workspace init helpers (scaffold `.saga/`, update `.gitignore`)
-- `src/context/extractor.ts` — text extraction (.md, .txt, .pdf, .docx, code)
-- `src/context/manager.ts` — `ContextManager` (add/remove/load context files)
-- `src/generation/prompts.ts` — Handlebars prompt templates for epic + story generation
-- `src/generation/service.ts` — `GenerationService` (LLM call → Zod parse → retry)
-- `src/invest/validator.ts` — `InvestValidator` (heuristic + LLM-assisted INVEST scoring)
-- `src/tree/saga-tree.ts` — `SagaTreeProvider` + `ContextTreeProvider` with file watchers
-- `src/webview/html.ts` — shared `getWebviewHtml()` that reads Vite's generated `index.html` at runtime and rewrites hashed asset URLs to `webview.asWebviewUri` — both panels use this
-- `src/webview/story-panel.ts` — extension-host side of the Story editor Webview
-- `src/webview/settings-panel.ts` — extension-host side of the Settings Webview; reads/writes `config.yaml`, proxies SecretStorage key entry, calls `listModels()` on enabled providers to populate the routing picker
-- `webview-ui/src/vscode-api.ts` — single `acquireVsCodeApi()` call shared by the whole bundle (calling it twice causes a VS Code runtime error)
-- `webview-ui/src/vscode.ts` — typed postMessage bridge for the Story panel (wraps `vscode-api.ts`)
-- `webview-ui/src/vscode-settings.ts` — typed postMessage bridge for the Settings panel (wraps `vscode-api.ts`)
-- `webview-ui/src/StoryEditor.tsx` — story editor (Form/YAML tabs, INVEST badges)
-- `webview-ui/src/SettingsEditor.tsx` — settings form (AI Provider, Model Routing with live model picker, Tracker placeholder, Budget)
+| Module | File | Notes |
+|---|---|---|
+| Zod schemas | `src/schema/index.ts` | `Epic`, `Story`, `ContextEntry`, `InvestResult`, `Config`, `RoutingValueSchema` |
+| YAML I/O | `src/saga-repo.ts` | typed read/write for epics, stories, config, context registry |
+| LLM provider interface | `src/llm/provider.ts` | `LLMProvider`, `LLMResponse`, `TokenUsage` |
+| VS Code LM adapter | `src/llm/vscode-lm.ts` | Copilot; estimates tokens via `countTokens()` + char÷4 |
+| Local adapter | `src/llm/local.ts` | Ollama/LM Studio; exact token counts from OpenAI API |
+| Routing resolver | `src/llm/routing.ts` | `resolveProviderFromConfig(task, root)` — reads config, returns provider + modelLabel |
+| Secrets | `src/secrets.ts` | `SecretsManager` wrapping VS Code SecretStorage |
+| FS helpers | `src/saga-fs.ts` | Scaffold `.saga/`, update `.gitignore`, `isSagaInitialized()` |
+| Text extractor | `src/context/extractor.ts` | `.md/.txt/.pdf/.docx/code` extraction |
+| Context manager | `src/context/manager.ts` | `addContextFile()`, `addInlineContext()`, `removeContextFile()`, `loadContextTexts()` |
+| Prompt templates | `src/generation/prompts.ts` | Handlebars: epic gen, story gen (with sibling epics), epic refine, story refine |
+| Generation service | `src/generation/service.ts` | `GenerationResult<T>`; generate + refine epics/stories; `AbortSignal` + `TokenUsage` throughout |
+| INVEST validator | `src/invest/validator.ts` | Heuristic + LLM-assisted scoring, 6 criteria |
+| Tree views | `src/tree/saga-tree.ts` | `SagaTreeProvider`, `ContextTreeProvider`, file watchers |
+| Webview HTML helper | `src/webview/html.ts` | Reads Vite's hashed `index.html` at runtime, rewrites asset URIs, injects CSP |
+| Story panel | `src/webview/story-panel.ts` | Form/YAML editor; INVEST validate; save |
+| Settings panel | `src/webview/settings-panel.ts` | GUI over `config.yaml`; SecretStorage key entry; `discoverModels()`; `testProvider()` |
+| Generation review panel | `src/webview/generation-review-panel.ts` | Inline edit; INVEST validation; refine; `onRegenerate(signal)`; token usage forwarding |
+| Webview API singleton | `webview-ui/src/vscode-api.ts` | Single `acquireVsCodeApi()` — calling it twice crashes the Webview |
+| Story bridge | `webview-ui/src/vscode.ts` | Typed postMessage for story panel |
+| Settings bridge | `webview-ui/src/vscode-settings.ts` | Typed postMessage for settings panel |
+| Generation review bridge | `webview-ui/src/vscode-generation-review.ts` | Typed postMessage for review panel; includes `TokenUsage` |
+| Story editor React | `webview-ui/src/StoryEditor.tsx` | Form + YAML tabs, INVEST badges |
+| Settings editor React | `webview-ui/src/SettingsEditor.tsx` | AI Provider, Model Routing (live picker), Tracker (M2 placeholder), Budget |
+| Generation review React | `webview-ui/src/GenerationReview.tsx` | Inline edit, INVEST badges + issues, per-story refine, validate all, refine all, token display |
 
-### Services (planned)
-- **Sync Engine** — 3-way diff between `.saga/`, last-synced snapshot, and live tracker state (M3)
-- **Prompt / AGENTS.md Service** — assembles context-aware agent prompts from stories + workspace files (M4)
-
-### `.saga/` folder (the source of truth)
+### `.saga/` folder (source of truth)
 ```
 .saga/
-├── config.yaml          # non-secret: provider routing, model tiers, tracker defaults
-├── context/             # registered input files (briefs, designs, standards)
-├── epics/               # EPIC-NNN.yaml
-├── stories/             # STORY-NNN.yaml (schema defined in PRD §5.2)
-├── prompts/             # generated agent prompts
-├── templates/           # user-overridable Handlebars templates
-└── .sync/               # gitignored: remote-ID mappings and last-synced snapshots
+├── config.yaml       # non-secret: provider routing, model IDs, tracker defaults
+├── context/          # registered files + inline-NNN.md + context-registry.yaml
+├── epics/            # EPIC-NNN.yaml
+├── stories/          # STORY-NNN.yaml
+├── prompts/          # generated agent prompts (M4)
+├── templates/        # user-overridable Handlebars templates
+└── .sync/            # gitignored: remote-ID mappings and last-synced snapshots
 ```
 
 ### Build pipeline
-Two separate build targets:
-- **Extension**: `esbuild.js` bundles `src/extension.ts` → `dist/extension.js` (CJS, `vscode` externalized). `npm run compile` runs type-check + lint + esbuild.
-- **Webview**: `vite build` bundles `webview-ui/` → `dist/webview/` (ESM, React). `npm run compile:webview`. The extension host serves assets from `dist/webview/` via `webview.asWebviewUri`.
+Two separate targets — run both before F5 when changing Webview source:
 
 ```bash
-npm run compile          # extension only (check-types + lint + esbuild)
-npm run compile:webview  # webview only (vite build)
-npm run package          # both, production — run before F5 to get a fresh webview bundle
+npm run compile          # extension: check-types + lint + esbuild → dist/extension.js
+npm run compile:webview  # webview: vite build → dist/webview/ (hashed filenames)
+npm run package          # both, production mode (minified, no sourcemaps)
 ```
 
 ### UI layers
-
-Every command is reachable from **both** the Command Palette and the Saga sidebar UI.
-
-- **Activity Bar icon** → Saga sidebar (`ViewContainer` with two stacked `TreeDataProvider` views)
-  - **Epics & Stories tree** — epics as parent nodes, stories as children with status badges
-  - **Context Files tree** — registered context files with role tags (brief / design / standards)
-- **Empty/uninitialized state** — `welcomeView` contribution shows an "Initialize Saga" button when no `.saga/` folder exists; triggers `saga.init` (same as Command Palette)
-- **Getting Started Webview** — 3-step onboarding panel (provider selection → add context file → first generation); opened after init and via `Saga: Getting Started`; wraps the same commands available from the palette/toolbar
-- **Story editor Webview** — opens on story click; form view (friendly fields + INVEST badges + Gherkin editor) and YAML tab for power users
-- **Settings Webview** — `saga.openSettings` / `⚙` button; GUI over `config.yaml` + SecretStorage key entry; provider connection tester (M1.5)
-- **Lightweight interactions**: QuickPick / Input boxes for role tagging, confirmations
-- **Rich panels**: Webview + React + Vite (story editor, settings, 3-way diff UI, sync review)
-
-### Key dependencies
-**Installed (M0 + M1):**
-- `zod` — schema validation and LLM output parsing
-- `yaml` — read/write `.saga/` YAML files
-- `handlebars` — story and prompt templates
-- `@cucumber/gherkin` — validate generated acceptance criteria
-- `pdf-parse`, `mammoth` — extract text from brief/design documents
-- `react`, `react-dom`, `vite`, `@vitejs/plugin-react` — Webview UI
-
-**To add (future milestones):**
-- `@anthropic-ai/sdk`, `@google/generative-ai` — BYOK provider adapters (M4)
-- VS Code SecretStorage API — all credentials go here, never in `.saga/` (already used via `SecretsManager`)
+- **Activity Bar** → Saga sidebar (two stacked `TreeDataProvider` views)
+  - **Epics & Stories tree** — epics as parent nodes, stories as children with status badges; file watcher auto-refreshes
+  - **Context Files tree** — file + inline context entries with role tags
+- **Welcome view** — shown when `.saga/` not initialized; `saga.initialized` context variable hides it after `saga.init`
+- **Story editor Webview** — Form + YAML tabs, INVEST badges, save via postMessage
+- **Settings Webview** — GUI over `config.yaml`; single-instance panel
+- **Generation Review Webview** — single-instance panel; `data-panel="generation-review"` routes `main.tsx` to the correct React component
 
 ## Key constraints
 
-- **AI provider**: Default to VS Code LM API (`vscode.lm.selectChatModels`). BYOK and local adapters are fallbacks. Class D (consumer OAuth token reuse) is permanently off the table — Anthropic blocked it January 2026, Google followed February 2026.
-- **Model routing**: `config.yaml` routing entries are either a specific model ID string (e.g. `claude-sonnet-4-6`) or `"auto"`. `"auto"` delegates to tier-based selection (quality/cheap). The Settings Webview populates the picker from live `listModels()` calls. Never hardcode model IDs in non-config code. **Generation must read routing config** — use `resolveProviderFromConfig(task, sagaRoot)` not the bare `getProvider()` helper.
-- **Model label in UI**: every generation run must surface `<model-id> (<provider>)` in both the VS Code progress notification and the Generation Review panel header so the user always knows what ran.
-- **Token usage**: `LLMResponse.usage` carries `{ inputTokens, outputTokens }` where available. Local provider returns exact counts. VS Code LM estimates via `countTokens()` + char÷4 heuristic — always label estimated values `(est.)`. BYOK providers will return exact counts in M4. Counts must be logged to the Saga Output Channel and shown in the Generation Review panel header after every call.
-- **Cancellation**: all generation `withProgress` calls must use `cancellable: true`. The VS Code `CancellationToken` from the callback must be converted to an `AbortSignal` (via `AbortController`) and threaded through `GenerationService` into `provider.generate()`. Both providers already handle the signal. On abort, show an info message — never surface an unhandled error to the user.
-- **Cost routing**: cheap models (Haiku, Flash) for validation/splitting/prompt assembly; quality tier (Sonnet, Gemini Pro) for epic/story generation. Prompt caching on the Anthropic adapter is the single biggest cost lever.
-- **Secrets**: use `context.secrets` (VS Code SecretStorage) for every credential. Zero secrets in `.saga/` or any committed file.
-- **Sync safety**: sync is always explicit (user-triggered), previews changes before applying, and is idempotent. No background auto-push.
-- **LLM output**: always parse with Zod; never `JSON.parse` raw. Retry on schema failure with a stricter prompt before surfacing an error.
-- **Testing**: `@vscode/test-electron` for integration tests that need a real VS Code host; Vitest for pure logic units (parsers, validators, schema transforms).
+- **AI provider**: Default to VS Code LM API. BYOK and local are fallbacks. Class D (consumer OAuth token reuse) is permanently prohibited — Anthropic blocked Jan 2026, Google Feb 2026.
+- **Model routing**: `config.yaml` routing entries are a model ID string or `"auto"`. Always use `resolveProviderFromConfig(task, root)` — never the old `getProvider()` helper which ignores config.
+- **Model label**: every generation run must show `<model-id> (<provider>)` in the progress notification and the Generation Review panel header.
+- **Token usage**: log to Saga Output Channel and show in review panel header after every call. Label VS Code LM estimates `(est.)`. BYOK exact counts come in M4.
+- **Cancellation**: all generation `withProgress` must be `cancellable: true`. Convert `CancellationToken` → `AbortController` → `AbortSignal`; thread through `GenerationService` into `provider.generate()`. `onRegenerate` also receives the signal. Catch abort cleanly — info message, no error.
+- **Secrets**: `context.secrets` (SecretStorage) for every credential. Zero secrets in `.saga/` or committed files.
+- **LLM output**: always parse with Zod; never raw `JSON.parse`. Retry on parse failure with stricter prompt.
+- **Webview `acquireVsCodeApi()`**: call exactly once — in `webview-ui/src/vscode-api.ts`. All bridges import from there.
+- **Deletion**: all file deletions use `{ useTrash: true }` — recoverable from OS trash.
+- **Sync safety**: sync is always explicit (user-triggered), previews before applying, idempotent. No background auto-push.
+- **Testing**: `@vscode/test-electron` for VS Code host integration tests; Vitest for pure logic (parsers, validators).
+
+## Key dependencies
+
+**Installed:**
+- `zod` — schema validation and LLM output parsing
+- `yaml` — read/write `.saga/` YAML files
+- `handlebars` — generation prompt templates
+- `@cucumber/gherkin` — Gherkin scenario lint
+- `pdf-parse`, `mammoth` — text extraction from PDF/DOCX
+- `react`, `react-dom`, `vite`, `@vitejs/plugin-react` — Webview UI
+
+**To add (M4):**
+- `@anthropic-ai/sdk`, `@google/generative-ai` — BYOK provider adapters with exact token counts
