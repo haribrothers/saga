@@ -13,13 +13,17 @@ export interface LLMRequestOptions {
     signal?: AbortSignal;
 }
 
+export interface TokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    /** True when the count is estimated rather than reported by the provider. */
+    estimated?: boolean;
+}
+
 export interface LLMResponse {
     content: string;
-    /** Tokens consumed, when the provider reports them. */
-    usage?: {
-        inputTokens: number;
-        outputTokens: number;
-    };
+    /** Token counts when the provider reports or estimates them. */
+    usage?: TokenUsage;
 }
 
 export interface LLMModelInfo {

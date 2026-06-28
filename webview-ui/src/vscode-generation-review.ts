@@ -40,10 +40,16 @@ export interface InvestResult {
     testable: InvestCriterion;
 }
 
+export interface TokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    estimated?: boolean;
+}
+
 export type ReviewExtensionToWebview =
-    | { type: 'load'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number }
+    | { type: 'load'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number; tokenUsage?: TokenUsage }
     | { type: 'investResults'; results: Record<string, InvestResult> }
-    | { type: 'refined'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[] }
+    | { type: 'refined'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; tokenUsage?: TokenUsage }
     | { type: 'saveAck' }
     | { type: 'error'; message: string };
 

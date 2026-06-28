@@ -11,6 +11,37 @@ import { SettingsPanel } from './webview/settings-panel';
 import { GenerationReviewPanel } from './webview/generation-review-panel';
 import { resolveProviderFromConfig } from './llm/routing';
 
+// ─── Module-level helpers ─────────────────────────────────────────────────────
+
+let sagaOutputChannel: vscode.OutputChannel | undefined;
+
+function getSagaChannel(): vscode.OutputChannel {
+    if (!sagaOutputChannel) {
+        sagaOutputChannel = vscode.window.createOutputChannel('Saga');
+    }
+    return sagaOutputChannel;
+}
+
+function logTokenUsage(
+    task: string,
+    modelLabel: string,
+    usage: { inputTokens: number; outputTokens: number; estimated?: boolean } | undefined,
+): void {
+    if (!usage) { return; }
+    const est = usage.estimated ? ' (est.)' : '';
+    const channel = getSagaChannel();
+    channel.appendLine(
+        `✓ ${task}: ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out tokens${est} · ${modelLabel}`,
+    );
+}
+
+function isAbortError(err: unknown): boolean {
+    return (
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message.includes('aborted') || err.message.includes('Cancelled'))
+    );
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     const secrets = new SecretsManager(context.secrets);
     void secrets; // used by BYOK providers in M4
@@ -142,22 +173,36 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        let epics: Awaited<ReturnType<GenerationService['generateEpics']>> = [];
+        let result: Awaited<ReturnType<GenerationService['generateEpics']>> = { items: [] };
+        let cancelled = false;
+
         await vscode.window.withProgress(
-            { location: vscode.ProgressLocation.Notification, title: `Saga: Generating epics via ${resolved.modelLabel}…`, cancellable: false },
-            async () => {
-                const service = new GenerationService(resolved.provider);
-                const startId = await nextEpicId(sagaRoot);
-                epics = await service.generateEpics(contextTexts, startId, instructions);
+            { location: vscode.ProgressLocation.Notification, title: `Saga: Generating epics via ${resolved.modelLabel}…`, cancellable: true },
+            async (_progress, token) => {
+                const abort = new AbortController();
+                token.onCancellationRequested(() => abort.abort());
+                try {
+                    const service = new GenerationService(resolved.provider);
+                    const startId = await nextEpicId(sagaRoot);
+                    result = await service.generateEpics(contextTexts, startId, instructions, abort.signal);
+                } catch (err) {
+                    if (isAbortError(err)) { cancelled = true; }
+                    else { throw err; }
+                }
             },
         );
 
+        if (cancelled) { vscode.window.showInformationMessage('Saga: Generation cancelled.'); return; }
+
+        logTokenUsage('epic_generation', resolved.modelLabel, result.usage);
+
         await GenerationReviewPanel.open({
             mode: 'epics',
-            epics,
+            epics: result.items,
             stories: [],
             modelLabel: resolved.modelLabel,
             contextFileCount: contextTexts.length,
+            tokenUsage: result.usage,
             workspaceRoot: root,
             extensionUri: context.extensionUri,
             onRegenerate: async () => {
@@ -165,7 +210,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 const service = new GenerationService(r.provider);
                 const startId = await nextEpicId(sagaRoot);
                 const fresh = await service.generateEpics(contextTexts, startId, instructions);
-                return { epics: fresh, stories: [], modelLabel: r.modelLabel };
+                logTokenUsage('epic_generation', r.modelLabel, fresh.usage);
+                return { epics: fresh.items, stories: [], modelLabel: r.modelLabel, tokenUsage: fresh.usage };
             },
         });
         sagaTree?.refresh();
@@ -223,22 +269,36 @@ export async function activate(context: vscode.ExtensionContext) {
                 .filter((e) => e.id !== epicId)
                 .map((e) => ({ id: e.id, title: e.title }));
 
-            let stories: Awaited<ReturnType<GenerationService['generateStories']>> = [];
+            let storyResult: Awaited<ReturnType<GenerationService['generateStories']>> = { items: [] };
+            let storyCancelled = false;
+
             await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: `Saga: Generating stories via ${resolved.modelLabel}…`, cancellable: false },
-                async () => {
-                    const service = new GenerationService(resolved.provider);
-                    const startId = await nextStoryId(sagaRoot);
-                    stories = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions);
+                { location: vscode.ProgressLocation.Notification, title: `Saga: Generating stories via ${resolved.modelLabel}…`, cancellable: true },
+                async (_progress, token) => {
+                    const abort = new AbortController();
+                    token.onCancellationRequested(() => abort.abort());
+                    try {
+                        const service = new GenerationService(resolved.provider);
+                        const startId = await nextStoryId(sagaRoot);
+                        storyResult = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions, abort.signal);
+                    } catch (err) {
+                        if (isAbortError(err)) { storyCancelled = true; }
+                        else { throw err; }
+                    }
                 },
             );
+
+            if (storyCancelled) { vscode.window.showInformationMessage('Saga: Generation cancelled.'); return; }
+
+            logTokenUsage('story_generation', resolved.modelLabel, storyResult.usage);
 
             await GenerationReviewPanel.open({
                 mode: 'stories',
                 epics: [],
-                stories,
+                stories: storyResult.items,
                 modelLabel: resolved.modelLabel,
                 contextFileCount: contextTexts.length,
+                tokenUsage: storyResult.usage,
                 workspaceRoot: root,
                 extensionUri: context.extensionUri,
                 onRegenerate: async () => {
@@ -246,7 +306,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     const service = new GenerationService(r.provider);
                     const startId = await nextStoryId(sagaRoot);
                     const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions);
-                    return { epics: [], stories: fresh, modelLabel: r.modelLabel };
+                    logTokenUsage('story_generation', r.modelLabel, fresh.usage);
+                    return { epics: [], stories: fresh.items, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
                 },
             });
             sagaTree?.refresh();
@@ -264,7 +325,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const resolved = await resolveProviderFromConfig('invest_validation', root);
         const validator = new InvestValidator(resolved?.provider);
 
-        const channel = vscode.window.createOutputChannel('Saga');
+        const channel = getSagaChannel();
         channel.show();
         channel.appendLine(`INVEST Validation — ${stories.length} story(ies)\n${'─'.repeat(50)}`);
 
@@ -414,6 +475,80 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('Saga workspace cleaned up.');
     });
 
+    // ── saga.clearStoriesForEpic (F25) ────────────────────────────────────────
+    const clearStoriesForEpicCmd = vscode.commands.registerCommand(
+        'saga.clearStoriesForEpic',
+        async (arg?: string | { epic?: { id: string }; id?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            let epicId: string | undefined;
+            if (typeof arg === 'string') { epicId = arg; }
+            else if (arg && typeof arg === 'object') {
+                epicId = (arg as { epic?: { id: string } }).epic?.id ?? (arg as { id?: string }).id;
+            }
+            if (!epicId) { return; }
+
+            const stories = await listStories(sagaRoot, epicId);
+            if (stories.length === 0) {
+                vscode.window.showInformationMessage(`No stories found under ${epicId}.`);
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                `Delete all ${stories.length} story(ies) under ${epicId}? This cannot be undone.`,
+                { modal: true }, 'Clear Stories',
+            );
+            if (confirm !== 'Clear Stories') { return; }
+
+            for (const story of stories) {
+                await vscode.workspace.fs.delete(
+                    vscode.Uri.joinPath(sagaRoot, 'stories', `${story.id}.yaml`),
+                    { useTrash: true },
+                );
+            }
+            sagaTree?.refresh();
+            vscode.window.showInformationMessage(`Cleared ${stories.length} story(ies) under ${epicId}.`);
+        },
+    );
+
+    // ── saga.clearEpics (F25) ─────────────────────────────────────────────────
+    const clearEpicsCmd = vscode.commands.registerCommand('saga.clearEpics', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        const sagaRoot = getSagaRoot(root);
+
+        const allEpics = await listEpics(sagaRoot);
+        const allStories = await listStories(sagaRoot);
+        const totalItems = allEpics.length + allStories.length;
+
+        if (totalItems === 0) {
+            vscode.window.showInformationMessage('No epics or stories to clear.');
+            return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+            `Delete all ${allEpics.length} epic(s) and ${allStories.length} story(ies)? This cannot be undone.`,
+            { modal: true }, 'Clear All Epics',
+        );
+        if (confirm !== 'Clear All Epics') { return; }
+
+        for (const dir of ['epics', 'stories'] as const) {
+            const dirUri = vscode.Uri.joinPath(sagaRoot, dir);
+            try {
+                const entries = await vscode.workspace.fs.readDirectory(dirUri);
+                for (const [name, type] of entries) {
+                    if (type === vscode.FileType.File && !name.startsWith('.')) {
+                        await vscode.workspace.fs.delete(vscode.Uri.joinPath(dirUri, name), { useTrash: true });
+                    }
+                }
+            } catch { /* dir may not exist */ }
+        }
+        sagaTree?.refresh();
+        vscode.window.showInformationMessage('All epics and stories cleared.');
+    });
+
     // ── saga.openSettings ──────────────────────────────────────────────────────
     const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
         const root = requireRoot();
@@ -461,6 +596,8 @@ export async function activate(context: vscode.ExtensionContext) {
         openStoryCmd,
         deleteEpicCmd,
         deleteStoryCmd,
+        clearStoriesForEpicCmd,
+        clearEpicsCmd,
         cleanUpCmd,
         openSettingsCmd,
         testGenCmd,

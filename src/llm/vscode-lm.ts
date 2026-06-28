@@ -49,6 +49,19 @@ export class VsCodeLmProvider implements LLMProvider {
         const vsMessages = toVsMessages(options.messages);
         const token = options.signal ? signalToToken(options.signal) : undefined;
 
+        // Estimate input tokens before the call (VS Code LM API has no post-call usage field).
+        let inputTokens = 0;
+        try {
+            for (const msg of vsMessages) {
+                inputTokens += await model.countTokens(msg);
+            }
+        } catch {
+            // countTokens may fail on some models — fall back to char heuristic.
+            inputTokens = Math.ceil(
+                options.messages.reduce((s, m) => s + m.content.length, 0) / 4,
+            );
+        }
+
         const response = await model.sendRequest(
             vsMessages,
             { justification: 'Saga: generating agile planning content' },
@@ -60,7 +73,13 @@ export class VsCodeLmProvider implements LLMProvider {
             content += chunk;
         }
 
-        return { content };
+        // Estimate output tokens from character count (standard ~4 chars/token heuristic).
+        const outputTokens = Math.ceil(content.length / 4);
+
+        return {
+            content,
+            usage: { inputTokens, outputTokens, estimated: true },
+        };
     }
 
     async *stream(options: LLMRequestOptions): AsyncIterable<string> {

@@ -1,6 +1,6 @@
 import * as yaml from 'yaml';
 import { z } from 'zod';
-import { LLMProvider } from '../llm/provider';
+import { LLMProvider, TokenUsage } from '../llm/provider';
 import { Epic, EpicSchema, Story, StorySchema, ContextEntry } from '../schema';
 import { buildEpicGenPrompt, buildStoryGenPrompt, buildEpicRefinePrompt, buildStoryRefinePrompt } from './prompts';
 
@@ -23,28 +23,35 @@ const RawStorySchema = StorySchema.partial({
     estimate: true,
 });
 
+// ─── Result types ─────────────────────────────────────────────────────────────
+
+export interface GenerationResult<T> {
+    items: T[];
+    usage?: TokenUsage;
+}
+
 export class GenerationService {
     constructor(private readonly provider: LLMProvider) {}
 
     /**
      * Generate epics from context documents.
-     * Returns parsed epics; does NOT write to disk — caller decides.
+     * Returns parsed epics + token usage; does NOT write to disk — caller decides.
      */
     async generateEpics(
         context: Array<ContextEntry & { text: string }>,
         startId: string,
         additionalInstructions = '',
-    ): Promise<Epic[]> {
+        signal?: AbortSignal,
+    ): Promise<GenerationResult<Epic>> {
         const prompt = buildEpicGenPrompt(context, startId, 2, 8, additionalInstructions);
-        const rawYaml = await this.callWithRetry(prompt, 'epic');
-        return this.parseEpicList(rawYaml);
+        const { text, usage } = await this.callWithRetry(prompt, 'epic', signal);
+        return { items: this.parseEpicList(text), usage };
     }
 
     /**
      * Generate stories for a single epic.
-     * siblingEpics — all OTHER epics in the backlog; included in the prompt so the
-     * LLM knows their scope and stays within the target epic's boundaries.
-     * Returns parsed stories; does NOT write to disk — caller decides.
+     * siblingEpics — all OTHER epics; passed to the prompt to prevent scope bleed.
+     * Returns parsed stories + token usage; does NOT write to disk — caller decides.
      */
     async generateStories(
         epic: Pick<Epic, 'id' | 'title' | 'description'>,
@@ -52,31 +59,32 @@ export class GenerationService {
         context: Array<ContextEntry & { text: string }>,
         startId: string,
         additionalInstructions = '',
-    ): Promise<Story[]> {
+        signal?: AbortSignal,
+    ): Promise<GenerationResult<Story>> {
         const prompt = buildStoryGenPrompt(epic, siblingEpics, context, startId, 3, 8, additionalInstructions);
-        const rawYaml = await this.callWithRetry(prompt, 'story');
-        return this.parseStoryList(rawYaml, epic.id);
+        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
+        return { items: this.parseStoryList(text, epic.id), usage };
     }
 
     /**
      * Refine existing epics based on user instructions.
-     * Returns updated epics; does NOT write to disk.
+     * Returns updated epics + token usage; does NOT write to disk.
      */
-    async refineEpics(epics: Epic[], instructions: string): Promise<Epic[]> {
+    async refineEpics(epics: Epic[], instructions: string, signal?: AbortSignal): Promise<GenerationResult<Epic>> {
         const prompt = buildEpicRefinePrompt(
             epics.map((e) => ({ id: e.id, title: e.title, description: e.description ?? '' })),
             instructions,
         );
-        const rawYaml = await this.callWithRetry(prompt, 'epic');
-        return this.parseEpicList(rawYaml);
+        const { text, usage } = await this.callWithRetry(prompt, 'epic', signal);
+        return { items: this.parseEpicList(text), usage };
     }
 
     /**
      * Refine existing stories based on user instructions (e.g. fixing INVEST issues).
-     * Returns updated stories; does NOT write to disk.
+     * Returns updated stories + token usage; does NOT write to disk.
      */
-    async refineStories(stories: Story[], instructions: string): Promise<Story[]> {
-        if (stories.length === 0) { return []; }
+    async refineStories(stories: Story[], instructions: string, signal?: AbortSignal): Promise<GenerationResult<Story>> {
+        if (stories.length === 0) { return { items: [] }; }
         const epicId = stories[0].epic;
         const prompt = buildStoryRefinePrompt(
             stories.map((s) => ({
@@ -91,18 +99,27 @@ export class GenerationService {
             })),
             instructions,
         );
-        const rawYaml = await this.callWithRetry(prompt, 'story');
-        return this.parseStoryList(rawYaml, epicId);
+        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
+        return { items: this.parseStoryList(text, epicId), usage };
     }
 
     // ─── Private ──────────────────────────────────────────────────────────────
 
-    private async callWithRetry(userPrompt: string, kind: 'epic' | 'story'): Promise<string> {
+    private async callWithRetry(
+        userPrompt: string,
+        kind: 'epic' | 'story',
+        signal?: AbortSignal,
+    ): Promise<{ text: string; usage?: TokenUsage }> {
         const systemPrompt =
             `You are an expert agile coach. Return ONLY valid YAML — no markdown fences, no commentary. ` +
             `The output must be a YAML list of ${kind} objects matching the exact schema requested.`;
 
+        let lastUsage: TokenUsage | undefined;
+
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            // Surface cancellation before sending to avoid consuming tokens on a cancelled run.
+            signal?.throwIfAborted();
+
             const response = await this.provider.generate({
                 messages: [
                     { role: 'system', content: systemPrompt },
@@ -110,11 +127,13 @@ export class GenerationService {
                 ],
                 maxTokens: 4096,
                 temperature: 0.3,
+                signal,
             });
 
+            lastUsage = response.usage;
             const text = this.stripFences(response.content.trim());
             if (text.startsWith('-')) {
-                return text;
+                return { text, usage: lastUsage };
             }
             // Didn't start with a list — retry with tighter instruction
         }
@@ -141,7 +160,6 @@ export class GenerationService {
             throw new Error('Expected a YAML list of stories.');
         }
         return parsed.map((item, i) => {
-            // Enforce epic linkage
             item.epic = epicId;
             const result = RawStorySchema.safeParse(item);
             if (!result.success) {

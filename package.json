@@ -66,6 +66,16 @@
         "icon": "$(trash)"
       },
       {
+        "command": "saga.clearStoriesForEpic",
+        "title": "Saga: Clear Stories for Epic",
+        "category": "Saga"
+      },
+      {
+        "command": "saga.clearEpics",
+        "title": "Saga: Clear Epics",
+        "category": "Saga"
+      },
+      {
         "command": "saga.cleanUp",
         "title": "Saga: Clean Up",
         "category": "Saga"
@@ -150,6 +160,11 @@
           "command": "saga.deleteEpic",
           "when": "viewItem == sagaEpic",
           "group": "saga@1"
+        },
+        {
+          "command": "saga.clearStoriesForEpic",
+          "when": "viewItem == sagaEpic",
+          "group": "saga@2"
         },
         {
           "command": "saga.deleteStory",

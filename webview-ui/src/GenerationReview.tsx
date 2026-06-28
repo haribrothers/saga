@@ -6,6 +6,7 @@ import reviewApi, {
     StoryDraft,
     InvestResult,
     InvestGrade,
+    TokenUsage,
 } from './vscode-generation-review';
 import './generation-review.css';
 
@@ -17,6 +18,7 @@ interface ReviewState {
     stories: StoryDraft[];
     modelLabel: string;
     contextFileCount: number;
+    tokenUsage: TokenUsage | undefined;
     investResults: Record<string, InvestResult>;
     validating: boolean;
     refining: boolean;
@@ -26,13 +28,13 @@ interface ReviewState {
 }
 
 type Action =
-    | { type: 'LOAD'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number }
+    | { type: 'LOAD'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number; tokenUsage?: TokenUsage }
     | { type: 'UPDATE_EPIC'; idx: number; epic: EpicDraft }
     | { type: 'REMOVE_EPIC'; idx: number }
     | { type: 'UPDATE_STORY'; idx: number; story: StoryDraft }
     | { type: 'REMOVE_STORY'; idx: number }
     | { type: 'INVEST_RESULTS'; results: Record<string, InvestResult> }
-    | { type: 'REFINED'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[] }
+    | { type: 'REFINED'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; tokenUsage?: TokenUsage }
     | { type: 'VALIDATING' }
     | { type: 'REFINING' }
     | { type: 'SAVING' }
@@ -42,14 +44,14 @@ type Action =
 
 const initial: ReviewState = {
     mode: 'epics', epics: [], stories: [], modelLabel: '', contextFileCount: 0,
-    investResults: {}, validating: false, refining: false, saving: false,
-    error: null, saved: false,
+    tokenUsage: undefined, investResults: {}, validating: false, refining: false,
+    saving: false, error: null, saved: false,
 };
 
 function reducer(state: ReviewState, action: Action): ReviewState {
     switch (action.type) {
         case 'LOAD':
-            return { ...initial, mode: action.mode, epics: action.epics, stories: action.stories, modelLabel: action.modelLabel, contextFileCount: action.contextFileCount };
+            return { ...initial, mode: action.mode, epics: action.epics, stories: action.stories, modelLabel: action.modelLabel, contextFileCount: action.contextFileCount, tokenUsage: action.tokenUsage };
         case 'UPDATE_EPIC': {
             const epics = [...state.epics];
             epics[action.idx] = action.epic;
@@ -74,6 +76,7 @@ function reducer(state: ReviewState, action: Action): ReviewState {
                 ...state,
                 epics: action.mode === 'epics' ? action.epics : state.epics,
                 stories: action.mode === 'stories' ? action.stories : state.stories,
+                tokenUsage: action.tokenUsage ?? state.tokenUsage,
                 refining: false,
             };
         case 'VALIDATING': return { ...state, validating: true, error: null };
@@ -96,9 +99,9 @@ export function GenerationReview() {
         const handler = (event: MessageEvent<ReviewExtensionToWebview>) => {
             const msg = event.data;
             switch (msg.type) {
-                case 'load':        dispatch({ type: 'LOAD', mode: msg.mode, epics: msg.epics, stories: msg.stories, modelLabel: msg.modelLabel, contextFileCount: msg.contextFileCount }); break;
+                case 'load':        dispatch({ type: 'LOAD', mode: msg.mode, epics: msg.epics, stories: msg.stories, modelLabel: msg.modelLabel, contextFileCount: msg.contextFileCount, tokenUsage: msg.tokenUsage }); break;
                 case 'investResults': dispatch({ type: 'INVEST_RESULTS', results: msg.results }); break;
-                case 'refined':     dispatch({ type: 'REFINED', mode: msg.mode, epics: msg.epics, stories: msg.stories }); break;
+                case 'refined':     dispatch({ type: 'REFINED', mode: msg.mode, epics: msg.epics, stories: msg.stories, tokenUsage: msg.tokenUsage }); break;
                 case 'saveAck':     dispatch({ type: 'SAVE_ACK' }); break;
                 case 'error':       dispatch({ type: 'ERROR', message: msg.message }); break;
             }
@@ -162,6 +165,11 @@ export function GenerationReview() {
                     <span className="review-meta">
                         Model: <strong>{state.modelLabel}</strong>
                         {state.contextFileCount > 0 && ` · ${state.contextFileCount} context file${state.contextFileCount > 1 ? 's' : ''}`}
+                        {state.tokenUsage && (
+                            <span className="token-usage">
+                                {' · '}{state.tokenUsage.inputTokens.toLocaleString()} in / {state.tokenUsage.outputTokens.toLocaleString()} out tokens{state.tokenUsage.estimated ? ' (est.)' : ''}
+                            </span>
+                        )}
                     </span>
                 </div>
                 <div className="review-header-actions">

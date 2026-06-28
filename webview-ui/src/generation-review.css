@@ -28,6 +28,8 @@
 
 .review-meta { font-size: 11px; color: var(--vscode-descriptionForeground); }
 
+.token-usage { opacity: 0.85; }
+
 .review-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 /* ── Error banner ── */

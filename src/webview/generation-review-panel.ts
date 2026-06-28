@@ -4,6 +4,7 @@ import { writeEpic, writeStory, getSagaRoot } from '../saga-repo';
 import { GenerationService } from '../generation/service';
 import { InvestValidator } from '../invest/validator';
 import { resolveProviderFromConfig, RoutingTask } from '../llm/routing';
+import { TokenUsage } from '../llm/provider';
 import { getWebviewHtml } from './html';
 
 // ─── Message contract ─────────────────────────────────────────────────────────
@@ -31,10 +32,17 @@ export interface StoryDraft {
     invest?: InvestResult;
 }
 
+// Serialisable token usage (mirrors TokenUsage from provider.ts)
+export interface SerialTokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    estimated?: boolean;
+}
+
 type ExtensionToWebview =
-    | { type: 'load'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number }
+    | { type: 'load'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; modelLabel: string; contextFileCount: number; tokenUsage?: SerialTokenUsage }
     | { type: 'investResults'; results: Record<string, InvestResult> }
-    | { type: 'refined'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[] }
+    | { type: 'refined'; mode: ReviewMode; epics: EpicDraft[]; stories: StoryDraft[]; tokenUsage?: SerialTokenUsage }
     | { type: 'saveAck' }
     | { type: 'error'; message: string };
 
@@ -53,10 +61,11 @@ export interface GenerationReviewOptions {
     stories: Story[];
     modelLabel: string;
     contextFileCount: number;
+    tokenUsage?: TokenUsage;
     workspaceRoot: vscode.Uri;
     extensionUri: vscode.Uri;
     /** Called when user clicks Regenerate — re-runs generation and reloads the panel. */
-    onRegenerate: () => Promise<{ epics: Epic[]; stories: Story[]; modelLabel: string }>;
+    onRegenerate: () => Promise<{ epics: Epic[]; stories: Story[]; modelLabel: string; tokenUsage?: TokenUsage }>;
 }
 
 export class GenerationReviewPanel {
@@ -104,6 +113,7 @@ export class GenerationReviewPanel {
             stories: this._opts.stories.map(storyToDraft),
             modelLabel: this._opts.modelLabel,
             contextFileCount: this._opts.contextFileCount,
+            tokenUsage: this._opts.tokenUsage,
         });
     }
 
@@ -162,12 +172,12 @@ export class GenerationReviewPanel {
             const service = new GenerationService(resolved.provider);
             if (mode === 'epics') {
                 const epics = items as EpicDraft[];
-                const refined = await service.refineEpics(epics.map(draftToEpic), instructions);
-                this.post({ type: 'refined', mode, epics: refined.map(epicToDraft), stories: [] });
+                const result = await service.refineEpics(epics.map(draftToEpic), instructions);
+                this.post({ type: 'refined', mode, epics: result.items.map(epicToDraft), stories: [], tokenUsage: result.usage });
             } else {
                 const stories = items as StoryDraft[];
-                const refined = await service.refineStories(stories.map(draftToStory), instructions);
-                this.post({ type: 'refined', mode, epics: [], stories: refined.map(storyToDraft) });
+                const result = await service.refineStories(stories.map(draftToStory), instructions);
+                this.post({ type: 'refined', mode, epics: [], stories: result.items.map(storyToDraft), tokenUsage: result.usage });
             }
         } catch (err) {
             this.post({ type: 'error', message: String(err) });
@@ -182,6 +192,7 @@ export class GenerationReviewPanel {
             this._opts.epics = result.epics;
             this._opts.stories = result.stories;
             this._opts.modelLabel = result.modelLabel;
+            this._opts.tokenUsage = result.tokenUsage;
             await this.sendLoad();
         } catch (err) {
             this.post({ type: 'error', message: String(err) });

@@ -102,6 +102,7 @@ export class LocalLmProvider implements LLMProvider {
                 ? {
                       inputTokens: body.usage.prompt_tokens,
                       outputTokens: body.usage.completion_tokens,
+                      estimated: false,
                   }
                 : undefined,
         };
