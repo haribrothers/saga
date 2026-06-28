@@ -217,13 +217,19 @@ export async function activate(context: vscode.ExtensionContext) {
             const manager = new ContextManager(sagaRoot);
             const contextTexts = await manager.loadContextTexts();
 
+            // Load sibling epics so the prompt can tell the LLM what NOT to cover
+            const allEpics = await listEpics(sagaRoot);
+            const siblingEpics = allEpics
+                .filter((e) => e.id !== epicId)
+                .map((e) => ({ id: e.id, title: e.title }));
+
             let stories: Awaited<ReturnType<GenerationService['generateStories']>> = [];
             await vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title: `Saga: Generating stories via ${resolved.modelLabel}…`, cancellable: false },
                 async () => {
                     const service = new GenerationService(resolved.provider);
                     const startId = await nextStoryId(sagaRoot);
-                    stories = await service.generateStories(epic, contextTexts, startId, instructions);
+                    stories = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions);
                 },
             );
 
@@ -239,7 +245,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     const r = await resolveProviderFromConfig('story_generation', root) ?? resolved;
                     const service = new GenerationService(r.provider);
                     const startId = await nextStoryId(sagaRoot);
-                    const fresh = await service.generateStories(epic, contextTexts, startId, instructions);
+                    const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions);
                     return { epics: [], stories: fresh, modelLabel: r.modelLabel };
                 },
             });

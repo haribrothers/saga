@@ -42,15 +42,18 @@ export class GenerationService {
 
     /**
      * Generate stories for a single epic.
+     * siblingEpics — all OTHER epics in the backlog; included in the prompt so the
+     * LLM knows their scope and stays within the target epic's boundaries.
      * Returns parsed stories; does NOT write to disk — caller decides.
      */
     async generateStories(
         epic: Pick<Epic, 'id' | 'title' | 'description'>,
+        siblingEpics: Array<{ id: string; title: string }>,
         context: Array<ContextEntry & { text: string }>,
         startId: string,
         additionalInstructions = '',
     ): Promise<Story[]> {
-        const prompt = buildStoryGenPrompt(epic, context, startId, 3, 8, additionalInstructions);
+        const prompt = buildStoryGenPrompt(epic, siblingEpics, context, startId, 3, 8, additionalInstructions);
         const rawYaml = await this.callWithRetry(prompt, 'story');
         return this.parseStoryList(rawYaml, epic.id);
     }

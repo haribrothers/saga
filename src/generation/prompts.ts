@@ -51,13 +51,25 @@ export function buildEpicGenPrompt(
 // ─── Story generation prompt ──────────────────────────────────────────────────
 
 const STORY_GEN_TEMPLATE = Handlebars.compile(`
-You are an expert agile coach. Your task is to generate INVEST-compliant user stories with Gherkin acceptance criteria for the given epic.
+You are an expert agile coach. Your task is to generate INVEST-compliant user stories with Gherkin acceptance criteria for ONE specific epic.
 
-## Epic
+## Target epic — generate stories ONLY for this epic
 
+ID: {{epic.id}}
 Title: {{epic.title}}
 Description: {{epic.description}}
 
+{{#if siblings.length}}
+## Other epics — DO NOT generate stories for these
+
+The following epics exist in this backlog. Their scope is already covered elsewhere.
+Stories you generate must belong ONLY to the target epic above and must not overlap with these.
+
+{{#each siblings}}
+- {{id}}: {{title}}
+{{/each}}
+
+{{/if}}
 ## Context documents
 
 {{#each context}}
@@ -68,7 +80,7 @@ Description: {{epic.description}}
 
 ## Instructions
 
-Generate user stories that together fully cover the scope of the epic above.
+Generate user stories that together fully cover the scope of the TARGET epic above — and nothing outside it.
 Each story must:
 - Follow the "As a / I want / So that" format
 - Be Independent, Negotiable, Valuable, Estimable, Small, and Testable (INVEST)
@@ -116,13 +128,14 @@ Generate between {{minStories}} and {{maxStories}} stories. Use sequential IDs s
 
 export function buildStoryGenPrompt(
     epic: { id: string; title: string; description?: string },
+    siblings: Array<{ id: string; title: string }>,
     context: Array<ContextEntry & { text: string }>,
     startId: string,
     minStories = 3,
     maxStories = 8,
     additionalInstructions = '',
 ): string {
-    const base = STORY_GEN_TEMPLATE({ epic, context, startId, minStories, maxStories });
+    const base = STORY_GEN_TEMPLATE({ epic, siblings, context, startId, minStories, maxStories });
     return additionalInstructions.trim()
         ? `${base}\n\n## Additional Instructions\n${additionalInstructions.trim()}`
         : base;
