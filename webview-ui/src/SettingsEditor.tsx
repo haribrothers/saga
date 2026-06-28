@@ -489,6 +489,12 @@ function TrackerSection({
                                     value={config.tracker.jira.story_issue_type} onChange={(v) => setJira({ story_issue_type: v })} />
                                 <TrackerField label="Acceptance criteria field ID" placeholder="description"
                                     value={config.tracker.jira.ac_field_id} onChange={(v) => setJira({ ac_field_id: v })} />
+                                <TrackerField
+                                    label="Story points field ID (optional)"
+                                    placeholder="e.g. customfield_10016 or customfield_10028"
+                                    value={config.tracker.jira.story_points_field_id}
+                                    onChange={(v) => setJira({ story_points_field_id: v })}
+                                />
                             </div>
                         </details>
                     </div>

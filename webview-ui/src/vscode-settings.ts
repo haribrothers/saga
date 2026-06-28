@@ -53,6 +53,7 @@ export interface SettingsConfigData {
             story_issue_type: string;
             ac_field_id: string;
             epic_link_style: 'parent' | 'customfield_10014';
+            story_points_field_id: string; // empty string = omit from push
         };
         ado: {
             org_url: string;

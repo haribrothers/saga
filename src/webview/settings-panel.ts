@@ -51,6 +51,7 @@ export interface SettingsConfigData {
             story_issue_type: string;
             ac_field_id: string;
             epic_link_style: 'parent' | 'customfield_10014';
+            story_points_field_id: string; // empty string = omit from push
         };
         ado: {
             org_url: string;
@@ -220,6 +221,7 @@ export class SettingsPanel {
                         story_issue_type: raw.tracker.jira?.story_issue_type ?? 'Story',
                         ac_field_id: raw.tracker.jira?.ac_field_id ?? 'description',
                         epic_link_style: raw.tracker.jira?.epic_link_style ?? 'parent',
+                        story_points_field_id: raw.tracker.jira?.story_points_field_id ?? '',
                     },
                     ado: {
                         org_url: raw.tracker.ado?.org_url ?? '',
@@ -274,7 +276,12 @@ export class SettingsPanel {
         setIn(doc, ['tracker', 'jira', 'epic_issue_type'],    data.tracker.jira.epic_issue_type);
         setIn(doc, ['tracker', 'jira', 'story_issue_type'],   data.tracker.jira.story_issue_type);
         setIn(doc, ['tracker', 'jira', 'ac_field_id'],        data.tracker.jira.ac_field_id);
-        setIn(doc, ['tracker', 'jira', 'epic_link_style'],    data.tracker.jira.epic_link_style);
+        setIn(doc, ['tracker', 'jira', 'epic_link_style'],         data.tracker.jira.epic_link_style);
+        // Only write story_points_field_id when non-empty; omit to keep the
+        // field undefined in config.yaml (which means "skip story points on push").
+        if (data.tracker.jira.story_points_field_id) {
+            setIn(doc, ['tracker', 'jira', 'story_points_field_id'], data.tracker.jira.story_points_field_id);
+        }
         setIn(doc, ['tracker', 'ado', 'org_url'],             data.tracker.ado.org_url);
         setIn(doc, ['tracker', 'ado', 'project'],             data.tracker.ado.project);
         setIn(doc, ['tracker', 'ado', 'area_path'],           data.tracker.ado.area_path);
@@ -559,7 +566,7 @@ function defaultSettingsConfig(): SettingsConfigData {
         },
         tracker: {
             default: 'none',
-            jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', ac_field_id: 'description', epic_link_style: 'parent' },
+            jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', ac_field_id: 'description', epic_link_style: 'parent', story_points_field_id: '' },
             ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story' },
         },
     };

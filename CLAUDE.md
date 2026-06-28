@@ -30,24 +30,23 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 - **F27 (cancellation):** `withProgress cancellable: true` on both generation commands. `CancellationToken` → `AbortController` → `AbortSignal` threaded through `GenerationService.callWithRetry` into `provider.generate({ signal })`. `onRegenerate` callback also receives and honours `AbortSignal`. Abort caught cleanly — info notification shown, no error dialog, review panel not opened.
 
 **M2 ✓ Complete** — One-way push to Jira Cloud and Azure DevOps:
-- `TrackerAdapter` interface + `PushResult` / `ConnectionTestResult` / `TrackerError` types (`src/tracker/adapter.ts`)
-- `JiraAdapter` — Jira Cloud REST v3, Basic auth (email + API token), create/update epics & stories, ADF description, Next-Gen `parent` link or Classic `customfield_10014` Epic Link (`src/tracker/jira.ts`)
-- `AdoAdapter` — Azure DevOps REST, PAT auth, JSON Patch work-item create/update, epic hierarchy link (`src/tracker/ado.ts`)
-- `field-mapping.ts` — Saga domain → Jira ADF issue fields / ADO JSON Patch operations; Gherkin AC, story points, labels
-- `hash.ts` — SHA-256 over canonical fields for drift detection (`local_hash`, `last_synced_hash`)
-- `sync-store.ts` — `.saga/.sync/mappings.json` read/write for remote key/URL/hash persistence
-- `factory.ts` — `buildTrackerAdapter(root, secrets)` reads config + SecretStorage and returns the active adapter
-- Settings Webview tracker section unlocked: Jira Cloud + ADO config forms, Test Connection, credential entry via SecretStorage; new messages `saveTrackerSecret` / `testTrackerConnection` / `trackerConnectionResult`
-- Commands: `saga.pushEpic`, `saga.pushStory` — create or update; write `remote:` block + `local_hash` back to YAML; persist to sync store; "Open in Browser" action on success
-- Tree decorations: epics show `[PROJ-10 ✓]` / `[drifted ●]`; stories show `[synced ✓]` / `[drifted ●]` based on live hash comparison
-- Schema additions: `jira.epic_issue_type`, `story_issue_type`, `ac_field_id`, `epic_link_style`; `ado.area_path`, `epic_work_item_type`, `story_work_item_type`
+- `TrackerAdapter` interface: `pushEpic`, `pushStory`, `deleteEpic`, `deleteStory`, `testConnection` + `PushResult` / `ConnectionTestResult` / `TrackerError` (`src/tracker/adapter.ts`)
+- `JiraAdapter` (`src/tracker/jira.ts`): Jira Cloud REST v3, Basic auth (email:token base64), create/update/delete issues, ADF descriptions (never empty), labels only when non-empty, story points via optional `storyPointsFieldId` (omitted by default — avoids 400 on restricted screens), Next-Gen `parent` link or Classic `customfield_10014` Epic Link
+- `AdoAdapter` (`src/tracker/ado.ts`): ADO REST, PAT auth (`Basic base64(:pat)`), JSON Patch work-item create/update/delete (sends to recycle bin), epic hierarchy via `System.LinkTypes.Hierarchy-Reverse`
+- `field-mapping.ts`: `toJiraEpicFields`, `toJiraStoryFields` (accepts optional `storyPointsFieldId`), `toAdoEpicPatch`, `toAdoStoryPatch`
+- `hash.ts`: `hashEpic` / `hashStory` — SHA-256 over canonical fields (title, description, user-story form, AC, estimate, labels sorted)
+- `sync-store.ts`: `readMappings` / `writeMappings` / `setMapping` / `getMapping` — `.saga/.sync/mappings.json`
+- `factory.ts`: `buildTrackerAdapter(root, secrets)` — reads config + SecretStorage, returns `JiraAdapter` or `AdoAdapter` or `undefined`
+- **Settings Webview tracker section** fully functional: Jira Cloud + ADO config forms with all fields, Test Connection per tracker, Add/Update Token/PAT via SecretStorage Input Box, advanced collapse with issue types / AC field / story points field ID / epic link style; new messages `saveTrackerSecret` / `testTrackerConnection` / `trackerConnectionResult`
+- `saga.pushEpic` / `saga.pushStory`: create or update; write `remote:` block + `local_hash` back to YAML; persist to sync store; "Open in Browser" on success
+- Tree decorations: epics show `[PROJ-10 ✓]` / `[drifted ●]`; stories show `[synced ✓]` / `[drifted ●]`; icons green/yellow via `ThemeColor`
+- Schema: `jira.{ epic_issue_type, story_issue_type, ac_field_id, epic_link_style, story_points_field_id? }`; `ado.{ area_path?, epic_work_item_type, story_work_item_type }`
 
 **M2.1 ✓ Complete** — Push UX improvements:
-
-- **F15b — Epic-first enforcement:** `saga.pushStory` blocks if the parent epic hasn't been pushed yet. Shows a modal with the epic ID and a "Push Epic" shortcut action. Prevents orphaned stories in the tracker.
-- **F15c — Post-epic push offer:** After `saga.pushEpic` succeeds, the success notification gains a **"Push Stories"** action that pushes all stories under that epic in sequence using the same adapter. Already-synced stories are updated, not re-created.
-- **F15d — Tracker-aware delete:** When deleting a pushed epic or story, show a 3-option modal: "Delete from [Jira/ADO] & locally", "Delete locally only", "Cancel". If remote delete fails (403, network), surface the error and ask "Delete locally anyway?" — never silently trap the user. Requires `deleteEpic(epic)` / `deleteStory(story)` on `TrackerAdapter`, `JiraAdapter`, and `AdoAdapter`.
-- **F15 — Bulk push:** `saga.pushAll` command + "↑ Push All" sidebar toolbar button. Pushes all unpushed/drifted epics first (in EPIC-NNN order), then all their stories. Progress notification with running counter. Summary on completion. Failures continue (don't abort the batch) and are listed in the Output Channel.
+- **F15b — Epic-first enforcement** (`saga.pushStory`): blocks if parent epic not yet pushed to the active provider; modal with "Push Epic" shortcut action. Prevents orphaned stories in the tracker.
+- **F15c — Post-epic push offer** (`saga.pushEpic`): success notification shows "Push N Stories" when there are unpushed stories under the epic; pushes them in sequence with the parent key already set.
+- **F15d — Tracker-aware delete** (`saga.deleteEpic` / `saga.deleteStory`): 3-option modal when item has a remote key: "Delete from [tracker] & locally" / "Delete locally only" / Cancel. Remote delete failure shows error + "Delete locally anyway?" — never hard-blocks. Sync store entry removed on successful remote delete. Shared `trackerAwareDelete()` helper in `extension.ts`.
+- **F15 — Bulk push** (`saga.pushAll`): pushes all unpushed/drifted epics first (EPIC-NNN order), then all stories resolving parent keys from freshly-pushed epics; failures log to Output Channel and don't abort the batch; progress notification with running counter; "↑ Push All" button in Epics & Stories sidebar toolbar.
 
 **Next: M3 — Sync** — Pull from tracker + two-way sync + 3-way conflict resolution (F11), status decorations (F14).
 
@@ -111,14 +110,21 @@ Two core interfaces carry extensibility:
 | Tree views | `src/tree/saga-tree.ts` | `SagaTreeProvider`, `ContextTreeProvider`, file watchers |
 | Webview HTML helper | `src/webview/html.ts` | Reads Vite's hashed `index.html` at runtime, rewrites asset URIs, injects CSP |
 | Story panel | `src/webview/story-panel.ts` | Form/YAML editor; INVEST validate; save |
-| Settings panel | `src/webview/settings-panel.ts` | GUI over `config.yaml`; SecretStorage key entry; `discoverModels()`; `testProvider()` |
+| Settings panel | `src/webview/settings-panel.ts` | GUI over `config.yaml`; SecretStorage key entry; `discoverModels()`; `testProvider()`; tracker config + `testTrackerConnection` |
 | Generation review panel | `src/webview/generation-review-panel.ts` | Inline edit; INVEST validation; refine; `onRegenerate(signal)`; token usage forwarding |
+| Tracker adapter interface | `src/tracker/adapter.ts` | `TrackerAdapter`, `PushResult`, `ConnectionTestResult`, `TrackerError` |
+| Jira adapter | `src/tracker/jira.ts` | Jira Cloud REST v3; Basic auth; create/update/delete; ADF descriptions |
+| ADO adapter | `src/tracker/ado.ts` | Azure DevOps REST; PAT auth; JSON Patch create/update/delete |
+| Field mapping | `src/tracker/field-mapping.ts` | Saga domain → Jira ADF fields / ADO patch operations |
+| Hash utility | `src/tracker/hash.ts` | `hashEpic` / `hashStory` — SHA-256 for drift detection |
+| Sync store | `src/tracker/sync-store.ts` | `.saga/.sync/mappings.json` read/write |
+| Tracker factory | `src/tracker/factory.ts` | `buildTrackerAdapter(root, secrets)` — returns correct adapter or undefined |
 | Webview API singleton | `webview-ui/src/vscode-api.ts` | Single `acquireVsCodeApi()` — calling it twice crashes the Webview |
 | Story bridge | `webview-ui/src/vscode.ts` | Typed postMessage for story panel |
-| Settings bridge | `webview-ui/src/vscode-settings.ts` | Typed postMessage for settings panel |
+| Settings bridge | `webview-ui/src/vscode-settings.ts` | Typed postMessage for settings panel; includes full tracker config shape |
 | Generation review bridge | `webview-ui/src/vscode-generation-review.ts` | Typed postMessage for review panel; includes `TokenUsage` |
 | Story editor React | `webview-ui/src/StoryEditor.tsx` | Form + YAML tabs, INVEST badges |
-| Settings editor React | `webview-ui/src/SettingsEditor.tsx` | AI Provider, Model Routing (live picker), Tracker (M2 placeholder), Budget |
+| Settings editor React | `webview-ui/src/SettingsEditor.tsx` | AI Provider, Model Routing (live picker), Tracker (Jira + ADO forms, Test Connection, credentials), Budget |
 | Generation review React | `webview-ui/src/GenerationReview.tsx` | Inline edit, INVEST badges + issues, per-story refine, validate all, refine all, token display |
 
 ### `.saga/` folder (source of truth)
@@ -162,6 +168,8 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **LLM output**: always parse with Zod; never raw `JSON.parse`. Retry on parse failure with stricter prompt.
 - **Webview `acquireVsCodeApi()`**: call exactly once — in `webview-ui/src/vscode-api.ts`. All bridges import from there.
 - **Deletion**: all file deletions use `{ useTrash: true }` — recoverable from OS trash.
+- **Tracker push**: always use `buildTrackerAdapter(root, secrets)` — never instantiate `JiraAdapter` / `AdoAdapter` directly in commands. Story push requires parent epic to be pushed first (F15b). Story points field is omitted by default; configure `jira.story_points_field_id` to enable. Jira ADF `content` must never be empty (toAdf pads with a space paragraph).
+- **Tracker delete**: all deletes go through `trackerAwareDelete()` when item has `remote.key`. Remote delete failures must not hard-block local delete — always offer "Delete locally anyway?".
 - **Sync safety**: sync is always explicit (user-triggered), previews before applying, idempotent. No background auto-push.
 - **Testing**: `@vscode/test-electron` for VS Code host integration tests; Vitest for pure logic (parsers, validators).
 
