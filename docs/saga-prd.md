@@ -161,7 +161,7 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F22 | Diff-aware regeneration (regenerate only changed stories when context updates) | P2 |
 | F23 | Settings page Webview — GUI over `config.yaml` + SecretStorage credential entry | P0 |
 | F24 | Inline text context — paste/type free-form text as additional context without creating a file | P0 |
-| F25 | Delete epics, stories, and full cleanup — right-click delete with confirmation; `Saga: Clean Up` command | P0 |
+| F25 | Delete epics, stories, and scoped/full cleanup — right-click delete with confirmation; clear all stories under an epic; clear all epics (and their stories); `Saga: Clean Up` removes everything | P0 |
 | F26 | Token usage visibility — input/output token counts logged after every generation run; shown in Generation Review panel header and Saga Output Channel | P0 |
 | F27 | Generation cancellation — cancel any in-progress generation via the VS Code progress notification dismiss button; stops the LLM call mid-flight and shows a "cancelled" notification | P0 |
 
@@ -482,9 +482,11 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 | `Saga: Generate Stories for Epic` | Palette + epic inline button | F4; asks for instructions → Generation Review Webview |
 | `Saga: Validate Stories` | Palette + sidebar toolbar | F5; shows results in Output Channel |
 | `Saga: Open Story` | Palette + story click in tree | Opens Story editor Webview |
-| `Saga: Delete Epic` | Tree right-click on epic | F25; confirmation required |
-| `Saga: Delete Story` | Tree right-click on story | F25; confirmation required |
-| `Saga: Clean Up` | Palette | F25; removes all generated content after strong confirmation |
+| `Saga: Delete Epic` | Tree right-click on epic | F25; modal confirm; offers to delete child stories |
+| `Saga: Delete Story` | Tree right-click on story | F25; modal confirm |
+| `Saga: Clear Stories for Epic` | Tree right-click on epic | F25; deletes all stories under that epic; modal confirm |
+| `Saga: Clear Epics` | Palette | F25; deletes all epics and all stories; modal confirm |
+| `Saga: Clean Up` | Palette | F25; removes all epics, stories, prompts, and context; type `"delete all"` to confirm |
 | `Saga: Generate Agent Prompt` | Palette + story right-click | F12 |
 | `Saga: Generate AGENTS.md` | Palette + sidebar toolbar | F13 |
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
@@ -559,10 +561,21 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 - "Small = warn/fail" offers the **split assistant** (F17): proposes 2–3 smaller stories preserving acceptance coverage.
 
 ### 8.4 Delete & cleanup (F25)
-- **Right-click → Delete** on any epic or story in the tree — shows a confirmation dialog before deleting the YAML file from `.saga/`.
-- Deleting an epic also offers to delete its child stories (with a second confirmation).
-- **Saga: Clean Up** command — removes all content from `.saga/epics/`, `.saga/stories/`, `.saga/prompts/`, and `.saga/context/` after a strong confirmation prompt: *"This will delete all generated epics, stories, prompts, and context files. This cannot be undone. Type 'delete all' to confirm."*
-- The `.saga/config.yaml`, `.saga/templates/`, and `.saga/.sync/` are never touched by Clean Up.
+
+Four levels of deletion, from most targeted to most destructive:
+
+| Operation | Trigger | Scope | Confirmation |
+|---|---|---|---|
+| **Delete Story** | Right-click → Delete Story | Single `.saga/stories/STORY-NNN.yaml` | Modal confirm |
+| **Delete Epic** | Right-click → Delete Epic | Single `.saga/epics/EPIC-NNN.yaml`; offers to delete child stories | Modal confirm × 2 if stories exist |
+| **Clear Stories for Epic** | Right-click on epic → Clear Stories | All stories whose `epic:` field matches the selected epic | Modal confirm naming the epic |
+| **Clear All Epics** | Command Palette `Saga: Clear Epics` | All files in `.saga/epics/` and all files in `.saga/stories/` | Modal confirm |
+| **Clean Up** | Command Palette `Saga: Clean Up` | Everything in `.saga/epics/`, `.saga/stories/`, `.saga/prompts/`, `.saga/context/` | Modal confirm + type `"delete all"` |
+
+**Rules that never change:**
+- `.saga/config.yaml`, `.saga/templates/`, and `.saga/.sync/` are never touched by any cleanup operation.
+- All deletions send files to the OS trash (recoverable) rather than permanent delete.
+- The sidebar tree refreshes automatically after any deletion.
 
 ### 8.4 Two-way sync (F11) — the hard part
 Because `.saga/` is the source of truth, but the tracker can also change:

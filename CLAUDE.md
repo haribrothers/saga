@@ -33,7 +33,7 @@ M0, M1, M1.5, and M1.6 are complete. **M1.7 is next** — Token usage visibility
 
 **M1.5** — Settings Webview (`saga.openSettings`): provider selection + connection testing, per-task model picker (live `listModels()` per enabled provider, `"auto"` fallback), BYOK key entry via SecretStorage, budget controls. Routing schema in `config.yaml` changed from `{ tier: quality|cheap }` to a plain model ID string or `"auto"`.
 
-**M1.6** — Generation UX overhaul: `GenerationReviewPanel` (interactive review, inline edit, INVEST badges, per-story + bulk refine, regenerate, save/discard); pre-generation Additional Instructions Input Box; `resolveProviderFromConfig()` reads routing from config; `saga.addInlineContext` (F24); `saga.deleteEpic`, `saga.deleteStory`, `saga.cleanUp` (F25); sibling epics passed to story generation prompt to prevent scope bleed.
+**M1.6** — Generation UX overhaul: `GenerationReviewPanel` (interactive review, inline edit, INVEST badges, per-story + bulk refine, regenerate, save/discard); pre-generation Additional Instructions Input Box; `resolveProviderFromConfig()` reads routing from config; `saga.addInlineContext` (F24); `saga.deleteEpic`, `saga.deleteStory`, `saga.cleanUp` (F25); sibling epics passed to story generation prompt to prevent scope bleed. F25 extended with `saga.clearStoriesForEpic` (right-click on epic → clear all its stories) and `saga.clearEpics` (palette → clear all epics + all stories) — two new scoped cleanup operations sitting between individual delete and full clean up.
 
 ## Commands
 
