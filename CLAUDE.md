@@ -8,7 +8,9 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 
 M0, M1, M1.5, and M1.6 are complete. **M1.7 is next** — Token usage visibility (F26).
 
-**M1.7 scope (next milestone):**
+**M1.7 scope (next milestone) — two features, both small:**
+
+**F26 — Token usage visibility:**
 - Capture input/output token counts from `LLMResponse.usage` after every generation and refinement call.
 - **VS Code LM (Copilot):** estimate input via `model.countTokens()` before the call; estimate output as `content.length / 4`. Label as `(est.)`.
 - **Local (Ollama/LM Studio):** already returns exact counts in `response.usage` from the OpenAI-compatible API.
@@ -16,6 +18,14 @@ M0, M1, M1.5, and M1.6 are complete. **M1.7 is next** — Token usage visibility
 - Surface in two places: (a) Generation Review panel header — `<N> in / <N> out tokens [est.]`; (b) `Saga` Output Channel — one line per call.
 - `GenerationService` accumulates and returns `TokenUsage` alongside generated content.
 - `GenerationReviewPanel` includes `tokenUsage` in the `load` and `refined` messages to the Webview.
+
+**F27 — Generation cancellation:**
+- `withProgress` → `cancellable: true` on `generateEpics` and `generateStoriesForEpic`.
+- `withProgress` callback receives a VS Code `CancellationToken` — wrap it in an `AbortController` and pass the `AbortSignal` down into `GenerationService`.
+- `GenerationService.generateEpics/generateStories/refineEpics/refineStories` accept an optional `AbortSignal` and forward it into `callWithRetry` → `provider.generate({ signal })`.
+- Both providers already handle `signal`: `VsCodeLmProvider` uses `signalToToken()`, `LocalLmProvider` passes to `fetch`. No provider changes needed.
+- On cancellation: catch the abort error, show `vscode.window.showInformationMessage('Generation cancelled.')`, do NOT open the review panel.
+- The `onRegenerate` callback in `GenerationReviewPanel` also needs to receive and honour the signal.
 
 **M0** — `saga.init`, `saga.testGeneration`, `LLMProvider` interface, `VsCodeLmProvider`, `LocalLmProvider`, `SecretsManager`, `SagaFileSystem`.
 
@@ -150,6 +160,7 @@ Every command is reachable from **both** the Command Palette and the Saga sideba
 - **Model routing**: `config.yaml` routing entries are either a specific model ID string (e.g. `claude-sonnet-4-6`) or `"auto"`. `"auto"` delegates to tier-based selection (quality/cheap). The Settings Webview populates the picker from live `listModels()` calls. Never hardcode model IDs in non-config code. **Generation must read routing config** — use `resolveProviderFromConfig(task, sagaRoot)` not the bare `getProvider()` helper.
 - **Model label in UI**: every generation run must surface `<model-id> (<provider>)` in both the VS Code progress notification and the Generation Review panel header so the user always knows what ran.
 - **Token usage**: `LLMResponse.usage` carries `{ inputTokens, outputTokens }` where available. Local provider returns exact counts. VS Code LM estimates via `countTokens()` + char÷4 heuristic — always label estimated values `(est.)`. BYOK providers will return exact counts in M4. Counts must be logged to the Saga Output Channel and shown in the Generation Review panel header after every call.
+- **Cancellation**: all generation `withProgress` calls must use `cancellable: true`. The VS Code `CancellationToken` from the callback must be converted to an `AbortSignal` (via `AbortController`) and threaded through `GenerationService` into `provider.generate()`. Both providers already handle the signal. On abort, show an info message — never surface an unhandled error to the user.
 - **Cost routing**: cheap models (Haiku, Flash) for validation/splitting/prompt assembly; quality tier (Sonnet, Gemini Pro) for epic/story generation. Prompt caching on the Anthropic adapter is the single biggest cost lever.
 - **Secrets**: use `context.secrets` (VS Code SecretStorage) for every credential. Zero secrets in `.saga/` or any committed file.
 - **Sync safety**: sync is always explicit (user-triggered), previews changes before applying, and is idempotent. No background auto-push.

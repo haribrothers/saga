@@ -163,6 +163,7 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F24 | Inline text context — paste/type free-form text as additional context without creating a file | P0 |
 | F25 | Delete epics, stories, and full cleanup — right-click delete with confirmation; `Saga: Clean Up` command | P0 |
 | F26 | Token usage visibility — input/output token counts logged after every generation run; shown in Generation Review panel header and Saga Output Channel | P0 |
+| F27 | Generation cancellation — cancel any in-progress generation via the VS Code progress notification dismiss button; stops the LLM call mid-flight and shows a "cancelled" notification | P0 |
 
 ### UI surface notes
 - Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
@@ -517,6 +518,13 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 4. Output opens in the **Generation Review Webview** (see §7.6) — never auto-saved.
 5. User reviews, edits inline, validates INVEST (stories), refines, and clicks **Save** or **Discard**.
 
+**Cancellation (F27):**
+- The VS Code progress notification shown during generation includes a **✕ Cancel** button (implemented via `cancellable: true` in `withProgress`).
+- Clicking cancel aborts the in-flight LLM request immediately via `AbortSignal`. Both providers support this: `VsCodeLmProvider` converts it to a VS Code `CancellationToken`; `LocalLmProvider` passes it directly to `fetch`.
+- On cancellation, a `"Generation cancelled."` information message is shown — no error, no partial output written to disk.
+- The `GenerationService` propagates the `AbortSignal` through `callWithRetry` into every `provider.generate()` call, including retry attempts.
+- The Generation Review panel's **Regenerate** button triggers a fresh generation through the same cancellable path.
+
 **Model resolution:**
 - The generation task looks up `config.yaml → ai.routing.<task>` for the model ID (or `"auto"`).
 - `"auto"` falls back to tier-based selection (quality tasks → best available model, cheap tasks → fastest).
@@ -765,7 +773,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M1 — Generate** | Context registration (F2), epic/story generation (F3, F4), INVEST validator (F5), tree view + editor (F6) | End-to-end: docs → reviewed stories in `.saga/`, no tracker yet |
 | **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
 | **M1.6 — Generation UX** | Generation Review Webview (F3, F4, F5): pre-generation instructions input, interactive review panel with inline editing, INVEST validation badges, per-story and bulk refinement via LLM; inline text context (F24); delete epics/stories/cleanup (F25); model routing resolution wired to config.yaml; model label shown in progress + panel | Full human-in-the-loop generation flow with refinement |
-| **M1.7 — Token visibility** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local and BYOK (M4) | Users can see exactly how much context is being sent and received |
+| **M1.7 — Generation quality** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local and BYOK (M4). Generation cancellation (F27): `cancellable: true` in progress notification; `AbortSignal` propagated through `GenerationService` → `LLMProvider`; clean "cancelled" notification on abort | Users can see token consumption and stop a generation mid-flight |
 | **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push | Stories appear in the tracker |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |
