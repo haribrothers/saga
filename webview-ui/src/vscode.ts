@@ -34,6 +34,9 @@ export interface StoryData {
     estimate?: number;
     labels: string[];
     invest?: InvestData;
+    // Passed through opaquely so save never strips sync state
+    remote?: unknown;
+    local_hash?: string;
 }
 
 export interface EpicSummary {

@@ -99,6 +99,12 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "saga.sync",
+        "title": "Saga: Sync with Tracker",
+        "category": "Saga",
+        "icon": "$(sync)"
+      },
+      {
         "command": "saga.openSettings",
         "title": "Saga: Open Settings",
         "category": "Saga",
@@ -159,6 +165,11 @@
         },
         {
           "command": "saga.pushAll",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.sync",
           "when": "view == saga.storiesView",
           "group": "navigation"
         },

@@ -15,6 +15,39 @@ export interface ConnectionTestResult {
     message: string;
 }
 
+// ─── Remote item shapes (returned by fetch methods) ───────────────────────────
+
+/**
+ * Normalised remote representation of an epic fetched from the tracker.
+ * Field names match the canonical fields used by hashEpic() so that
+ * hashRemoteEpic() produces a comparable hash for drift detection.
+ */
+export interface RemoteEpic {
+    key: string;
+    title: string;
+    description: string;
+    labels: string[];
+    url: string;
+}
+
+/**
+ * Normalised remote representation of a story fetched from the tracker.
+ * Field names match the canonical fields used by hashStory() so that
+ * hashRemoteStory() produces a comparable hash for drift detection.
+ */
+export interface RemoteStory {
+    key: string;
+    title: string;
+    as_a: string;
+    i_want: string;
+    so_that: string;
+    description: string;
+    acceptance_criteria: string[];
+    estimate?: number;
+    labels: string[];
+    url: string;
+}
+
 // ─── Tracker adapter interface ────────────────────────────────────────────────
 
 /**
@@ -26,6 +59,11 @@ export interface ConnectionTestResult {
  *   - If the item already has remote.key → UPDATE the existing one.
  * Both return a PushResult with the populated RemoteRef and the hash
  * of what was pushed (to be stored as last_synced_hash).
+ *
+ * fetchEpic / fetchStory:
+ *   - Fetch the current remote state of a single item by its tracker key.
+ *   - Returns a normalised RemoteEpic / RemoteStory for sync comparison.
+ *   - Throws TrackerError if the item no longer exists (404) or is inaccessible.
  */
 export interface TrackerAdapter {
     readonly provider: 'jira' | 'ado';
@@ -61,6 +99,20 @@ export interface TrackerAdapter {
      * The caller decides whether to proceed with local deletion after a failure.
      */
     deleteStory(story: Story): Promise<void>;
+
+    /**
+     * Fetch the current remote state of an epic by its tracker key.
+     * Used during sync to detect remote-side changes.
+     * Throws TrackerError if not found (404) or inaccessible.
+     */
+    fetchEpic(remoteKey: string): Promise<RemoteEpic>;
+
+    /**
+     * Fetch the current remote state of a story by its tracker key.
+     * Used during sync to detect remote-side changes.
+     * Throws TrackerError if not found (404) or inaccessible.
+     */
+    fetchStory(remoteKey: string): Promise<RemoteStory>;
 }
 
 // ─── Tracker error ────────────────────────────────────────────────────────────

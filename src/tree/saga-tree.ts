@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Epic, Story, StoryStatus } from '../schema';
 import { listEpics, listStories } from '../saga-repo';
 import { hashEpic, hashStory } from '../tracker/hash';
+import { readConflicts } from '../tracker/conflicts-store';
 
 // ─── Tree item types ──────────────────────────────────────────────────────────
 
@@ -13,29 +14,32 @@ export class EpicTreeItem extends vscode.TreeItem {
     constructor(
         readonly epic: Epic,
         storyCount: number,
+        isConflict = false,
     ) {
         super(epic.title, vscode.TreeItemCollapsibleState.Collapsed);
         this.id = epic.id;
 
-        const syncBadge = epicSyncBadge(epic);
+        const syncBadge = isConflict ? '[conflict ⚠]' : epicSyncBadge(epic);
         const storyLabel = `${storyCount} ${storyCount === 1 ? 'story' : 'stories'}`;
         this.description = syncBadge
             ? `${epic.id} · ${storyLabel}  ${syncBadge}`
             : `${epic.id} · ${storyLabel}`;
         this.tooltip = epic.description ?? epic.title;
         this.contextValue = 'sagaEpic';
-        this.iconPath = epicIcon(epic);
+        this.iconPath = isConflict
+            ? new vscode.ThemeIcon('symbol-module', new vscode.ThemeColor('charts.orange'))
+            : epicIcon(epic);
     }
 }
 
 export class StoryTreeItem extends vscode.TreeItem {
     readonly kind = 'story' as const;
 
-    constructor(readonly story: Story) {
+    constructor(readonly story: Story, isConflict = false) {
         super(story.title, vscode.TreeItemCollapsibleState.None);
         this.id = story.id;
 
-        const effectiveStatus = storyEffectiveStatus(story);
+        const effectiveStatus = isConflict ? 'conflict' : storyEffectiveStatus(story);
         this.description = `${story.id}  ${statusBadge(effectiveStatus)}`;
         this.tooltip = `${story.as_a} wants ${story.i_want}`;
         this.contextValue = 'sagaStory';
@@ -55,6 +59,7 @@ export class SagaTreeProvider implements vscode.TreeDataProvider<SagaTreeNode> {
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private watcher?: vscode.FileSystemWatcher;
+    private conflictWatcher?: vscode.FileSystemWatcher;
 
     constructor(private readonly sagaRoot: vscode.Uri) {
         this.startWatcher();
@@ -69,20 +74,21 @@ export class SagaTreeProvider implements vscode.TreeDataProvider<SagaTreeNode> {
     }
 
     async getChildren(element?: SagaTreeNode): Promise<SagaTreeNode[]> {
+        const conflicts = await readConflicts(this.sagaRoot);
+
         if (!element) {
-            // Root: list all epics
             const epics = await listEpics(this.sagaRoot);
             const nodes: EpicTreeItem[] = [];
             for (const epic of epics) {
                 const stories = await listStories(this.sagaRoot, epic.id);
-                nodes.push(new EpicTreeItem(epic, stories.length));
+                nodes.push(new EpicTreeItem(epic, stories.length, conflicts.has(epic.id)));
             }
             return nodes;
         }
 
         if (element.kind === 'epic') {
             const stories = await listStories(this.sagaRoot, element.epic.id);
-            return stories.map((s) => new StoryTreeItem(s));
+            return stories.map((s) => new StoryTreeItem(s, conflicts.has(s.id)));
         }
 
         return [];
@@ -90,6 +96,7 @@ export class SagaTreeProvider implements vscode.TreeDataProvider<SagaTreeNode> {
 
     dispose(): void {
         this.watcher?.dispose();
+        this.conflictWatcher?.dispose();
         this._onDidChangeTreeData.dispose();
     }
 
@@ -99,6 +106,13 @@ export class SagaTreeProvider implements vscode.TreeDataProvider<SagaTreeNode> {
         this.watcher.onDidChange(() => this.refresh());
         this.watcher.onDidCreate(() => this.refresh());
         this.watcher.onDidDelete(() => this.refresh());
+
+        // Also refresh when conflicts.json changes (written/cleared by sync)
+        const conflictPattern = new vscode.RelativePattern(this.sagaRoot, '.sync/conflicts.json');
+        this.conflictWatcher = vscode.workspace.createFileSystemWatcher(conflictPattern);
+        this.conflictWatcher.onDidChange(() => this.refresh());
+        this.conflictWatcher.onDidCreate(() => this.refresh());
+        this.conflictWatcher.onDidDelete(() => this.refresh());
     }
 }
 
@@ -174,25 +188,27 @@ function storyEffectiveStatus(story: Story): StoryStatus | 'drifted' {
     return story.status;
 }
 
-function statusBadge(status: StoryStatus | 'drifted'): string {
-    const badges: Record<StoryStatus | 'drifted', string> = {
+function statusBadge(status: StoryStatus | 'drifted' | 'conflict'): string {
+    const badges: Record<StoryStatus | 'drifted' | 'conflict', string> = {
         draft: '[draft]',
         ready: '[ready]',
         synced: '[synced ✓]',
         drifted: '[drifted ●]',
+        conflict: '[conflict ⚠]',
         'in-progress': '[in-progress]',
         done: '[done]',
     };
     return badges[status] ?? `[${status}]`;
 }
 
-function statusIcon(status: StoryStatus | 'drifted'): vscode.ThemeIcon {
+function statusIcon(status: StoryStatus | 'drifted' | 'conflict'): vscode.ThemeIcon {
     switch (status) {
-        case 'synced':  return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
-        case 'drifted': return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.yellow'));
-        case 'ready':   return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
-        case 'done':    return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green'));
-        default:        return new vscode.ThemeIcon('circle-outline');
+        case 'synced':   return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
+        case 'drifted':  return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.yellow'));
+        case 'conflict': return new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.orange'));
+        case 'ready':    return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
+        case 'done':     return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green'));
+        default:         return new vscode.ThemeIcon('circle-outline');
     }
 }
 

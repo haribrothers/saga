@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { Epic, Story } from '../schema';
+import { RemoteEpic, RemoteStory } from './adapter';
 
 /**
  * Compute a stable SHA-256 hash over the canonical fields of an epic or story.
@@ -31,6 +32,43 @@ export function hashStory(story: Story): string {
         acceptance_criteria: story.acceptance_criteria,
         estimate: story.estimate ?? null,
         labels: [...(story.labels ?? [])].sort(),
+    };
+    return sha256(canonical);
+}
+
+/**
+ * Hash a RemoteEpic using the same canonical field set as hashEpic().
+ * The `id` field is omitted because RemoteEpic uses tracker keys, not Saga IDs —
+ * the caller must supply the Saga ID separately when building the comparison.
+ * Passing `sagaId` here keeps the hash comparable to hashEpic() output.
+ */
+export function hashRemoteEpic(remote: RemoteEpic, sagaId: string): string {
+    const canonical = {
+        id: sagaId,
+        title: remote.title,
+        description: remote.description,
+        labels: [...remote.labels].sort(),
+    };
+    return sha256(canonical);
+}
+
+/**
+ * Hash a RemoteStory using the same canonical field set as hashStory().
+ * `sagaId` and `epicSagaId` must be provided since they're not present on the
+ * remote object but are part of the canonical hash for local stories.
+ */
+export function hashRemoteStory(remote: RemoteStory, sagaId: string, epicSagaId: string): string {
+    const canonical = {
+        id: sagaId,
+        title: remote.title,
+        epic: epicSagaId,
+        as_a: remote.as_a,
+        i_want: remote.i_want,
+        so_that: remote.so_that,
+        description: remote.description,
+        acceptance_criteria: remote.acceptance_criteria,
+        estimate: remote.estimate ?? null,
+        labels: [...remote.labels].sort(),
     };
     return sha256(canonical);
 }

@@ -29,6 +29,9 @@ interface StoryMsg {
     estimate?: number;
     labels: string[];
     invest?: InvestResult;
+    // Preserved opaquely so save never loses sync state
+    remote?: Story['remote'];
+    local_hash?: string;
 }
 
 interface EpicSummary {
@@ -147,6 +150,8 @@ function storyToMsg(story: Story): StoryMsg {
         estimate: story.estimate,
         labels: story.labels,
         invest: story.invest,
+        remote: story.remote,
+        local_hash: story.local_hash,
     };
 }
 
@@ -165,5 +170,7 @@ function msgToStory(msg: StoryMsg): Story {
         estimate: msg.estimate,
         labels: msg.labels,
         invest: msg.invest,
+        remote: msg.remote,
+        local_hash: msg.local_hash,
     };
 }

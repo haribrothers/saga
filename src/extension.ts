@@ -13,7 +13,11 @@ import { resolveProviderFromConfig } from './llm/routing';
 import { buildTrackerAdapter } from './tracker/factory';
 import { hashEpic, hashStory } from './tracker/hash';
 import { setMapping, readMappings, writeMappings } from './tracker/sync-store';
-import type { TrackerAdapter } from './tracker/adapter';
+import { buildSyncPlan } from './tracker/sync-engine';
+import { writeConflicts } from './tracker/conflicts-store';
+import { SyncReviewPanel } from './webview/sync-review-panel';
+import type { TrackerAdapter, RemoteEpic, RemoteStory } from './tracker/adapter';
+import type { Epic, Story } from './schema';
 
 // ─── Module-level helpers ─────────────────────────────────────────────────────
 
@@ -1001,6 +1005,81 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(summary);
     });
 
+    // ── saga.sync (M3 — F11) ──────────────────────────────────────────────────
+    const syncCmd = vscode.commands.registerCommand('saga.sync', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        const sagaRoot = getSagaRoot(root);
+
+        const adapter = await buildTrackerAdapter(root, secrets);
+        if (!adapter) {
+            const go = await vscode.window.showWarningMessage(
+                'Saga: No tracker configured. Set up Jira or ADO in Settings.',
+                'Open Settings',
+            );
+            if (go === 'Open Settings') { await vscode.commands.executeCommand('saga.openSettings'); }
+            return;
+        }
+
+        const allEpics = await listEpics(sagaRoot);
+        const allStories = await listStories(sagaRoot);
+
+        let plan: Awaited<ReturnType<typeof buildSyncPlan>>;
+
+        await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Saga: Fetching state from ${adapter.provider}…`, cancellable: false },
+            async () => {
+                plan = await buildSyncPlan(adapter, sagaRoot, allEpics, allStories);
+            },
+        );
+
+        plan = plan!;
+
+        // Write conflict IDs to sidecar so the tree shows ⚠ badges immediately
+        const conflictIds = [
+            ...plan.epics.filter((s) => s.kind === 'conflict').map((s) => s.local.id),
+            ...plan.stories.filter((s) => s.kind === 'conflict').map((s) => s.local.id),
+        ];
+        await writeConflicts(sagaRoot, conflictIds);
+        sagaTree?.refresh();
+
+        if (plan.fetchErrors.length > 0) {
+            const channel = getSagaChannel();
+            channel.show(true);
+            channel.appendLine(`\nSync fetch errors (${plan.fetchErrors.length}):`);
+            for (const e of plan.fetchErrors) {
+                channel.appendLine(`  ✗ ${e.sagaId}: ${e.error}`);
+            }
+        }
+
+        // Build lookup maps for the apply phase
+        const epicsMap = new Map<string, Epic>(allEpics.map((e) => [e.id, e]));
+        const storiesMap = new Map<string, Story>(allStories.map((s) => [s.id, s]));
+
+        const remoteEpicsMap = new Map<string, RemoteEpic>(
+            plan.epics
+                .filter((s): s is typeof s & { remote: RemoteEpic } => 'remote' in s)
+                .map((s) => [s.local.id, s.remote]),
+        );
+        const remoteStoriesMap = new Map<string, RemoteStory>(
+            plan.stories
+                .filter((s): s is typeof s & { remote: RemoteStory } => 'remote' in s)
+                .map((s) => [s.local.id, s.remote]),
+        );
+
+        await SyncReviewPanel.open({
+            plan,
+            adapter,
+            epicsMap,
+            storiesMap,
+            remoteEpicsMap,
+            remoteStoriesMap,
+            workspaceRoot: root,
+            extensionUri: context.extensionUri,
+        });
+
+    });
+
     // ── saga.openSettings ──────────────────────────────────────────────────────
     const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
         const root = requireRoot();
@@ -1054,6 +1133,7 @@ export async function activate(context: vscode.ExtensionContext) {
         pushEpicCmd,
         pushStoryCmd,
         pushAllCmd,
+        syncCmd,
         openSettingsCmd,
         testGenCmd,
     );

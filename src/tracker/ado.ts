@@ -1,5 +1,5 @@
 import { Epic, Story } from '../schema';
-import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError } from './adapter';
+import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory } from './adapter';
 import { hashEpic, hashStory } from './hash';
 import { AdoConfig, toAdoEpicPatch, toAdoStoryPatch } from './field-mapping';
 
@@ -11,6 +11,7 @@ interface AdoWorkItem {
     _links?: {
         html?: { href: string };
     };
+    fields?: Record<string, unknown>;
 }
 
 interface AdoProjectInfo {
@@ -121,6 +122,51 @@ export class AdoAdapter implements TrackerAdapter {
         await this.deleteWorkItem(Number(story.remote.key));
     }
 
+    async fetchEpic(remoteKey: string): Promise<RemoteEpic> {
+        const item = await this.get<AdoWorkItem>(
+            `/_apis/wit/workitems/${remoteKey}?fields=System.Title,System.Description,System.Tags&api-version=${this.apiVersion}`,
+        );
+        const f = item.fields ?? {};
+        return {
+            key: remoteKey,
+            title: String(f['System.Title'] ?? ''),
+            description: htmlToText(String(f['System.Description'] ?? '')),
+            labels: adoTagsToLabels(String(f['System.Tags'] ?? '')),
+            url: item._links?.html?.href ?? this.browseUrl(Number(remoteKey)),
+        };
+    }
+
+    async fetchStory(remoteKey: string): Promise<RemoteStory> {
+        const item = await this.get<AdoWorkItem>(
+            `/_apis/wit/workitems/${remoteKey}?fields=System.Title,System.Description,Microsoft.VSTS.Common.AcceptanceCriteria,Microsoft.VSTS.Scheduling.StoryPoints,System.Tags&api-version=${this.apiVersion}`,
+        );
+        const f = item.fields ?? {};
+
+        const rawDesc = htmlToText(String(f['System.Description'] ?? ''));
+        const { as_a, i_want, so_that, description } = parseAdoUserStoryHtml(
+            String(f['System.Description'] ?? ''),
+        );
+
+        const acHtml = String(f['Microsoft.VSTS.Common.AcceptanceCriteria'] ?? '');
+        const acceptance_criteria = parseAdoAcHtml(acHtml);
+
+        const sp = f['Microsoft.VSTS.Scheduling.StoryPoints'];
+        const estimate = sp !== null && sp !== undefined && sp !== '' ? Number(sp) : undefined;
+
+        return {
+            key: remoteKey,
+            title: String(f['System.Title'] ?? ''),
+            as_a,
+            i_want,
+            so_that,
+            description,
+            acceptance_criteria,
+            estimate: Number.isFinite(estimate) ? estimate : undefined,
+            labels: adoTagsToLabels(String(f['System.Tags'] ?? '')),
+            url: item._links?.html?.href ?? this.browseUrl(Number(remoteKey)),
+        };
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private browseUrl(id: number): string {
@@ -206,4 +252,59 @@ export class AdoAdapter implements TrackerAdapter {
             body,
         );
     }
+}
+
+// ─── ADO HTML parsing helpers ─────────────────────────────────────────────────
+
+/** Strip HTML tags to get plain text. Used for description comparison. */
+function htmlToText(html: string): string {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Reverse of toAdoStoryPatch description block.
+ * Parses "<p><strong>As a</strong> ...</p><p><strong>I want</strong> ...</p>..."
+ */
+function parseAdoUserStoryHtml(html: string): {
+    as_a: string; i_want: string; so_that: string; description: string;
+} {
+    const asAMatch = html.match(/<strong>As a<\/strong>\s*(.*?)<\/p>/i);
+    const iWantMatch = html.match(/<strong>I want<\/strong>\s*(.*?)<\/p>/i);
+    const soThatMatch = html.match(/<strong>So that<\/strong>\s*(.*?)<\/p>/i);
+
+    // Description is the last <p> that is not one of the user-story header paragraphs
+    const allParas = [...html.matchAll(/<p>(.*?)<\/p>/gi)].map((m) => htmlToText(m[1]));
+    const headerTexts = new Set([
+        asAMatch ? htmlToText(asAMatch[0]) : null,
+        iWantMatch ? htmlToText(iWantMatch[0]) : null,
+        soThatMatch ? htmlToText(soThatMatch[0]) : null,
+    ]);
+    const descParas = allParas.filter((p) => !headerTexts.has(p) && p.trim());
+    const description = descParas.join('\n').trim();
+
+    return {
+        as_a: asAMatch ? htmlToText(asAMatch[1]) : '',
+        i_want: iWantMatch ? htmlToText(iWantMatch[1]) : '',
+        so_that: soThatMatch ? htmlToText(soThatMatch[1]) : '',
+        description,
+    };
+}
+
+/**
+ * Reverse of the AC HTML block written by toAdoStoryPatch.
+ * Each scenario was stored as <pre>...</pre>; split them back out.
+ */
+function parseAdoAcHtml(html: string): string[] {
+    if (!html.trim()) { return []; }
+    const matches = [...html.matchAll(/<pre>([\s\S]*?)<\/pre>/gi)];
+    if (matches.length > 0) {
+        return matches.map((m) => m[1].trim()).filter(Boolean);
+    }
+    // Fallback: treat the whole thing as one AC item
+    return [htmlToText(html).trim()].filter(Boolean);
+}
+
+/** ADO tags are semicolon-separated; convert back to a sorted label array. */
+function adoTagsToLabels(tags: string): string[] {
+    return tags.split(';').map((t) => t.trim()).filter(Boolean).sort();
 }

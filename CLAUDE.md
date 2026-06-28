@@ -48,7 +48,19 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 - **F15d — Tracker-aware delete** (`saga.deleteEpic` / `saga.deleteStory`): 3-option modal when item has a remote key: "Delete from [tracker] & locally" / "Delete locally only" / Cancel. Remote delete failure shows error + "Delete locally anyway?" — never hard-blocks. Sync store entry removed on successful remote delete. Shared `trackerAwareDelete()` helper in `extension.ts`.
 - **F15 — Bulk push** (`saga.pushAll`): pushes all unpushed/drifted epics first (EPIC-NNN order), then all stories resolving parent keys from freshly-pushed epics; failures log to Output Channel and don't abort the batch; progress notification with running counter; "↑ Push All" button in Epics & Stories sidebar toolbar.
 
-**Next: M3 — Sync** — Pull from tracker + two-way sync + 3-way conflict resolution (F11), status decorations (F14).
+**M3 ✓ Complete** — Two-way sync + conflict resolution (F11) + status decorations (F14):
+- **`fetchEpic` / `fetchStory`** added to `TrackerAdapter` interface + `JiraAdapter` + `AdoAdapter`: fetch current remote state by tracker key; ADF→text and HTML→text parsing with flexible AC extraction to survive Jira/ADO round-trips; user-story fields fall back to local values when tracker parsing yields empty strings.
+- **`hashRemoteEpic` / `hashRemoteStory`** in `hash.ts`: hash remote items over the same canonical field set as `hashEpic`/`hashStory` so the 3-way diff is comparable.
+- **`sync-engine.ts`**: `buildSyncPlan(adapter, sagaRoot, epics, stories)` fetches all pushed items in parallel, classifies each as `in-sync | local-only | remote-only | conflict` via 3-way hash comparison (local hash vs base hash vs remote hash). Fetch failures are per-item (don't abort the plan). `countByKind()` for UI summary.
+- **`conflicts-store.ts`**: `.saga/.sync/conflicts.json` sidecar — `writeConflicts` / `clearConflicts`; written after `buildSyncPlan`, cleared after apply. Tree watches this file to refresh `[conflict ⚠]` badges without polling the tracker.
+- **`SyncReviewPanel`** (`src/webview/sync-review-panel.ts`): single-instance panel; receives plan + lookup maps; `runApply()` executes push/pull/keep-local/take-remote resolutions in order, writing YAML + sync store + clearing conflicts on success. Pull writes `StorySchema.parse()`-normalised content then hashes the parsed result — so `local_hash` and `last_synced_hash` match what `readStory()` produces, making subsequent drift detection accurate.
+- **`SyncReview.tsx`** + `sync-review.css`: React UI grouped into local-only / remote-only / conflicts / in-sync sections; conflict cards show field-by-field diff table with "Keep local / Take remote / Skip" resolution picker; fixed footer with Apply/Cancel; fetch errors listed separately.
+- **`vscode-sync-review.ts`** (webview bridge): typed postMessage contract `load → apply → applyAck`.
+- **F14 — `[conflict ⚠]` tree decoration**: `SagaTreeProvider` reads `conflicts.json` on every `getChildren()` call; epics and stories in the sidecar get orange `warning` icon + `[conflict ⚠]` badge. A second `FileSystemWatcher` on `.sync/conflicts.json` auto-refreshes the tree.
+- **`saga.sync` command** + `$(sync)` sidebar toolbar button: builds adapter → `buildSyncPlan` with progress → writes conflict markers → opens `SyncReviewPanel`. Fetch errors logged to Saga Output Channel.
+- **Story Editor passthrough fix**: `StoryPanel` `storyToMsg`/`msgToStory` and `StoryData` webview type now carry `remote` and `local_hash` — saving a story via the editor no longer strips sync state, so drift detection and update-vs-create on push both work correctly after a pull.
+
+**Next: M4 — Code loop** — Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete — Anthropic, Gemini, OpenAI BYOK adapters).
 
 ## Commands
 
@@ -116,16 +128,20 @@ Two core interfaces carry extensibility:
 | Jira adapter | `src/tracker/jira.ts` | Jira Cloud REST v3; Basic auth; create/update/delete; ADF descriptions |
 | ADO adapter | `src/tracker/ado.ts` | Azure DevOps REST; PAT auth; JSON Patch create/update/delete |
 | Field mapping | `src/tracker/field-mapping.ts` | Saga domain → Jira ADF fields / ADO patch operations |
-| Hash utility | `src/tracker/hash.ts` | `hashEpic` / `hashStory` — SHA-256 for drift detection |
+| Hash utility | `src/tracker/hash.ts` | `hashEpic` / `hashStory` / `hashRemoteEpic` / `hashRemoteStory` — SHA-256 for drift + 3-way sync |
 | Sync store | `src/tracker/sync-store.ts` | `.saga/.sync/mappings.json` read/write |
+| Conflicts store | `src/tracker/conflicts-store.ts` | `.saga/.sync/conflicts.json` — transient sidecar for `[conflict ⚠]` tree badges |
+| Sync engine | `src/tracker/sync-engine.ts` | `buildSyncPlan()` — fetch + classify all pushed items; `countByKind()` |
 | Tracker factory | `src/tracker/factory.ts` | `buildTrackerAdapter(root, secrets)` — returns correct adapter or undefined |
 | Webview API singleton | `webview-ui/src/vscode-api.ts` | Single `acquireVsCodeApi()` — calling it twice crashes the Webview |
-| Story bridge | `webview-ui/src/vscode.ts` | Typed postMessage for story panel |
+| Story bridge | `webview-ui/src/vscode.ts` | Typed postMessage for story panel; carries `remote` + `local_hash` through for drift correctness |
 | Settings bridge | `webview-ui/src/vscode-settings.ts` | Typed postMessage for settings panel; includes full tracker config shape |
 | Generation review bridge | `webview-ui/src/vscode-generation-review.ts` | Typed postMessage for review panel; includes `TokenUsage` |
+| Sync review bridge | `webview-ui/src/vscode-sync-review.ts` | Typed postMessage for sync panel: `load → apply → applyAck` |
 | Story editor React | `webview-ui/src/StoryEditor.tsx` | Form + YAML tabs, INVEST badges |
 | Settings editor React | `webview-ui/src/SettingsEditor.tsx` | AI Provider, Model Routing (live picker), Tracker (Jira + ADO forms, Test Connection, credentials), Budget |
 | Generation review React | `webview-ui/src/GenerationReview.tsx` | Inline edit, INVEST badges + issues, per-story refine, validate all, refine all, token display |
+| Sync review React | `webview-ui/src/SyncReview.tsx` | Grouped sections (local-only/remote-only/conflicts/in-sync); conflict field diff table; resolution pickers |
 
 ### `.saga/` folder (source of truth)
 ```
@@ -137,6 +153,8 @@ Two core interfaces carry extensibility:
 ├── prompts/          # generated agent prompts (M4)
 ├── templates/        # user-overridable Handlebars templates
 └── .sync/            # gitignored: remote-ID mappings and last-synced snapshots
+    ├── mappings.json     # sagaId → { jira|ado: { key, url, last_synced_hash, last_synced_at } }
+    └── conflicts.json    # transient: [ "STORY-003", "EPIC-001", ... ] — cleared after sync apply
 ```
 
 ### Build pipeline
@@ -156,6 +174,7 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **Story editor Webview** — Form + YAML tabs, INVEST badges, save via postMessage
 - **Settings Webview** — GUI over `config.yaml`; single-instance panel
 - **Generation Review Webview** — single-instance panel; `data-panel="generation-review"` routes `main.tsx` to the correct React component
+- **Sync Review Webview** — single-instance panel; `data-panel="sync-review"`; shows plan grouped by sync state; conflict cards with field diff table and resolution pickers
 
 ## Key constraints
 
@@ -171,6 +190,8 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **Tracker push**: always use `buildTrackerAdapter(root, secrets)` — never instantiate `JiraAdapter` / `AdoAdapter` directly in commands. Story push requires parent epic to be pushed first (F15b). Story points field is omitted by default; configure `jira.story_points_field_id` to enable. Jira ADF `content` must never be empty (toAdf pads with a space paragraph).
 - **Tracker delete**: all deletes go through `trackerAwareDelete()` when item has `remote.key`. Remote delete failures must not hard-block local delete — always offer "Delete locally anyway?".
 - **Sync safety**: sync is always explicit (user-triggered), previews before applying, idempotent. No background auto-push.
+- **Pull correctness**: when writing a pulled story, always run `StorySchema.parse()` on the merged object first, then call `hashStory()` on the parsed result. Store that hash as both `local_hash` and `remote.last_synced_hash`. This ensures `storyEffectiveStatus()` and push update-vs-create both work correctly after the pull. Never use `hashRemoteStory()` as the stored hash — it's only for classification during sync planning.
+- **Story Editor passthrough**: `StoryMsg` (extension) and `StoryData` (webview) must always carry `remote` and `local_hash` through the postMessage round-trip. These fields are never edited by the UI — they are opaque sync state. Dropping them on save loses the remote key (causing re-create on next push) and breaks drift detection.
 - **Testing**: `@vscode/test-electron` for VS Code host integration tests; Vitest for pure logic (parsers, validators).
 
 ## Key dependencies

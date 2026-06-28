@@ -1,5 +1,5 @@
 import { Epic, Story } from '../schema';
-import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError } from './adapter';
+import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory } from './adapter';
 import { hashEpic, hashStory } from './hash';
 import {
     JiraConfig,
@@ -129,6 +129,61 @@ export class JiraAdapter implements TrackerAdapter {
         await this.deleteIssue(story.remote.key);
     }
 
+    async fetchEpic(remoteKey: string): Promise<RemoteEpic> {
+        const issue = await this.get<JiraIssueResponse>(`/rest/api/3/issue/${remoteKey}?fields=summary,description,labels`);
+        return {
+            key: remoteKey,
+            title: issue.fields.summary,
+            description: adfToText(issue.fields.description),
+            labels: issue.fields.labels ?? [],
+            url: this.browseUrl(remoteKey),
+        };
+    }
+
+    async fetchStory(remoteKey: string): Promise<RemoteStory> {
+        // Fetch all fields we care about in one request. The AC field may be
+        // in the description or a custom field — we always read description and
+        // any configured custom AC field.
+        const fields = ['summary', 'description', 'labels', 'story_points',
+            this.cfg.acFieldId !== 'description' ? this.cfg.acFieldId : null,
+            this.cfg.storyPointsFieldId ?? null,
+        ].filter(Boolean).join(',');
+
+        const issue = await this.get<JiraIssueResponse>(`/rest/api/3/issue/${remoteKey}?fields=${fields}`);
+
+        const rawDesc = adfToText(issue.fields.description);
+        const { as_a, i_want, so_that, description } = parseUserStoryText(rawDesc);
+
+        // Acceptance criteria: either from a custom field or embedded in description
+        let acText: string;
+        if (this.cfg.acFieldId !== 'description' && issue.fields[this.cfg.acFieldId]) {
+            acText = adfToText(issue.fields[this.cfg.acFieldId] as AdfDoc | null);
+        } else {
+            // AC is appended to description after the "## Acceptance Criteria" header
+            acText = extractAcFromDescription(rawDesc);
+        }
+        const acceptance_criteria = parseGherkinScenarios(acText);
+
+        // Story points: read from the configured custom field if present
+        const spField = this.cfg.storyPointsFieldId;
+        const estimate = spField && issue.fields[spField] !== null && issue.fields[spField] !== undefined
+            ? Number(issue.fields[spField])
+            : undefined;
+
+        return {
+            key: remoteKey,
+            title: issue.fields.summary,
+            as_a,
+            i_want,
+            so_that,
+            description,
+            acceptance_criteria,
+            estimate: Number.isFinite(estimate) ? estimate : undefined,
+            labels: issue.fields.labels ?? [],
+            url: this.browseUrl(remoteKey),
+        };
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private browseUrl(key: string): string {
@@ -215,4 +270,125 @@ export class JiraAdapter implements TrackerAdapter {
             body,
         );
     }
+}
+
+// ─── Jira API response shapes (minimal) ──────────────────────────────────────
+
+interface AdfNode {
+    type: string;
+    text?: string;
+    content?: AdfNode[];
+}
+
+interface AdfDoc {
+    type: 'doc';
+    version: number;
+    content: AdfNode[];
+}
+
+interface JiraIssueResponse {
+    key: string;
+    fields: {
+        summary: string;
+        description: AdfDoc | null;
+        labels: string[];
+        [key: string]: unknown;
+    };
+}
+
+// ─── ADF → plain text ─────────────────────────────────────────────────────────
+
+function adfToText(doc: AdfDoc | null | undefined): string {
+    if (!doc) { return ''; }
+    return extractText(doc.content ?? []).trim();
+}
+
+function extractText(nodes: AdfNode[]): string {
+    return nodes.map((node) => {
+        if (node.type === 'text') { return node.text ?? ''; }
+        const inner = extractText(node.content ?? []);
+        // Add a newline after block-level nodes so paragraphs separate naturally
+        const isBlock = ['paragraph', 'heading', 'listItem', 'codeBlock', 'blockquote'].includes(node.type);
+        return isBlock ? inner + '\n' : inner;
+    }).join('');
+}
+
+// ─── User-story text parsing ──────────────────────────────────────────────────
+
+/**
+ * Reverse of storyDescription() in field-mapping.ts.
+ * Parses "As a ...\nI want ...\nSo that ...\n\n<description>" into parts.
+ * Returns empty strings for any missing parts so the caller always has
+ * a complete object even if the remote text was hand-edited.
+ */
+function parseUserStoryText(text: string): {
+    as_a: string; i_want: string; so_that: string; description: string;
+} {
+    // Strip the AC section first — match flexibly since ADF collapses whitespace
+    const acSectionMatch = text.match(/[-—]{3,}\s*(?:##?\s*)?Acceptance Criteria/i);
+    const body = (acSectionMatch?.index !== undefined
+        ? text.slice(0, acSectionMatch.index)
+        : text
+    ).trim();
+
+    // Match "As a X", "I want X", "So that X" — each may be on its own line
+    // after ADF round-trip paragraph splitting
+    const asAMatch = body.match(/^As a\s+(.+)/im);
+    const iWantMatch = body.match(/^I want\s+(.+)/im);
+    const soThatMatch = body.match(/^So that\s+(.+)/im);
+
+    // Description is everything after the "So that" line
+    const soThatIdx = body.search(/^So that\s+.+$/im);
+    let description = '';
+    if (soThatIdx >= 0) {
+        const afterSoThat = body.slice(soThatIdx).replace(/^So that\s+.+\n?/i, '').trim();
+        description = afterSoThat;
+    }
+
+    return {
+        as_a: asAMatch?.[1]?.trim() ?? '',
+        i_want: iWantMatch?.[1]?.trim() ?? '',
+        so_that: soThatMatch?.[1]?.trim() ?? '',
+        description,
+    };
+}
+
+/**
+ * Extract the acceptance criteria block appended by toJiraStoryFields()
+ * when acFieldId === 'description'.
+ *
+ * We wrote: "---\n\n## Acceptance Criteria\n\n<scenarios>"
+ * but ADF round-trips collapse whitespace, so we match flexibly on
+ * "---" and "Acceptance Criteria" regardless of surrounding whitespace.
+ * Returns empty string if the marker isn't present.
+ */
+function extractAcFromDescription(text: string): string {
+    // Try the exact marker first
+    const exactMarker = '---\n\n## Acceptance Criteria\n\n';
+    const exactIdx = text.indexOf(exactMarker);
+    if (exactIdx >= 0) {
+        return text.slice(exactIdx + exactMarker.length).trim();
+    }
+    // Flexible match: find "Acceptance Criteria" heading (with any surrounding whitespace)
+    const match = text.match(/[-—]{3,}\s*##?\s*Acceptance Criteria\s*/i);
+    if (match?.index !== undefined) {
+        return text.slice(match.index + match[0].length).trim();
+    }
+    // Last resort: look for just the heading line
+    const headingMatch = text.match(/##?\s*Acceptance Criteria\s*/i);
+    if (headingMatch?.index !== undefined) {
+        return text.slice(headingMatch.index + headingMatch[0].length).trim();
+    }
+    return '';
+}
+
+/**
+ * Split a multi-scenario Gherkin block back into individual scenario strings.
+ * Each scenario starts with "Scenario:" (with optional leading whitespace).
+ * If the text doesn't look like Gherkin, wrap the whole thing as one item.
+ */
+function parseGherkinScenarios(text: string): string[] {
+    if (!text.trim()) { return []; }
+    const parts = text.split(/(?=^\s*Scenario:)/m).map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [text.trim()];
 }
