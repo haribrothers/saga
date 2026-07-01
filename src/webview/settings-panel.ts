@@ -3,6 +3,9 @@ import * as yaml from 'yaml';
 import { getSagaRoot, readConfig } from '../saga-repo';
 import { VsCodeLmProvider } from '../llm/vscode-lm';
 import { LocalLmProvider } from '../llm/local';
+import { AnthropicProvider } from '../llm/anthropic';
+import { GeminiProvider } from '../llm/gemini';
+import { OpenAIByokProvider } from '../llm/openai-byok';
 import { SecretsManager, SecretKey, SecretKeyName } from '../secrets';
 import { getWebviewHtml } from './html';
 
@@ -305,7 +308,7 @@ export class SettingsPanel {
                 const ok = await p.isAvailable();
                 return ok ? { ok: true, message: 'Local endpoint reachable.' } : { ok: false, message: 'Cannot reach local endpoint. Is Ollama / LM Studio running?' };
             }
-            // BYOK providers — just check key presence for now (adapters added in M4)
+            // BYOK providers — use real adapters to do a live availability check
             const key = SECRET_KEYS[id];
             if (!key) {
                 return { ok: false, message: 'Provider not yet supported.' };
@@ -314,7 +317,16 @@ export class SettingsPanel {
             if (!stored) {
                 return { ok: false, message: 'No API key stored. Click "Update Key" to add one.' };
             }
-            return { ok: true, message: 'API key is stored. Full connectivity test available after M4 adapter is wired.' };
+            const getKey = () => this.secrets.get(key);
+            let provider;
+            if (id === 'anthropic') { provider = new AnthropicProvider(getKey); }
+            else if (id === 'gemini') { provider = new GeminiProvider(getKey); }
+            else if (id === 'openai') { provider = new OpenAIByokProvider(getKey); }
+            else { return { ok: false, message: 'Provider not yet supported.' }; }
+            const ok = await provider.isAvailable();
+            return ok
+                ? { ok: true, message: 'API key is stored and valid.' }
+                : { ok: false, message: 'API key present but provider is unreachable.' };
         } catch (err) {
             return { ok: false, message: String(err) };
         }
@@ -373,43 +385,29 @@ export class SettingsPanel {
             })());
         }
 
-        // BYOK providers: we know their model IDs statically until M4 adapters land.
-        // Show them only if a key is stored.
-        const byokModels: Array<{ provider: ProviderId; models: Array<{ id: string; label: string }> }> = [
-            {
-                provider: 'anthropic',
-                models: [
-                    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
-                    { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 (Anthropic)' },
-                    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (Anthropic)' },
-                ],
-            },
-            {
-                provider: 'gemini',
-                models: [
-                    { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (Google)' },
-                    { id: 'gemini-2.0-flash',  label: 'Gemini 2.0 Flash (Google)' },
-                ],
-            },
-            {
-                provider: 'openai',
-                models: [
-                    { id: 'gpt-4o',       label: 'GPT-4o (OpenAI)' },
-                    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini (OpenAI)' },
-                ],
-            },
+        // BYOK providers — use the real adapters to list models (requires key stored).
+        const byokProviders: Array<{ id: ProviderId; key: SecretKeyName }> = [
+            { id: 'anthropic', key: SecretKey.ANTHROPIC_API_KEY },
+            { id: 'gemini',    key: SecretKey.GEMINI_API_KEY },
+            { id: 'openai',    key: SecretKey.OPENAI_API_KEY },
         ];
 
-        for (const { provider, models } of byokModels) {
-            const key = SECRET_KEYS[provider];
-            if (!key) { continue; }
-            if (!config.ai.providers[provider].enabled) { continue; }
+        for (const { id, key } of byokProviders) {
+            if (!config.ai.providers[id].enabled) { continue; }
             queries.push((async () => {
-                const hasKey = await this.secrets.has(key);
-                if (!hasKey) { return; }
-                for (const m of models) {
-                    options.push({ id: m.id, displayName: m.label, provider });
-                }
+                try {
+                    const hasKey = await this.secrets.has(key);
+                    if (!hasKey) { return; }
+                    const getKey = () => this.secrets.get(key);
+                    let provider;
+                    if (id === 'anthropic') { provider = new AnthropicProvider(getKey); }
+                    else if (id === 'gemini') { provider = new GeminiProvider(getKey); }
+                    else { provider = new OpenAIByokProvider(getKey); }
+                    const models = await provider.listModels();
+                    for (const m of models) {
+                        options.push({ id: m.id, displayName: m.displayName, provider: id });
+                    }
+                } catch { /* key present but network error — skip */ }
             })());
         }
 

@@ -60,7 +60,31 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 - **`saga.sync` command** + `$(sync)` sidebar toolbar button: builds adapter → `buildSyncPlan` with progress → writes conflict markers → opens `SyncReviewPanel`. Fetch errors logged to Saga Output Channel.
 - **Story Editor passthrough fix**: `StoryPanel` `storyToMsg`/`msgToStory` and `StoryData` webview type now carry `remote` and `local_hash` — saving a story via the editor no longer strips sync state, so drift detection and update-vs-create on push both work correctly after a pull.
 
-**Next: M4 — Code loop** — Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete — Anthropic, Gemini, OpenAI BYOK adapters).
+**M4 — Code loop** (in progress) — Three sub-milestones:
+
+**M4.1 — BYOK provider adapters (F7 complete):**
+- `AnthropicProvider` (`src/llm/anthropic.ts`): Anthropic SDK, exact token counts, `AbortSignal`, key via `() => Promise<string | undefined>` callback injected at construction
+- `GeminiProvider` (`src/llm/gemini.ts`): Google Generative AI SDK, exact token counts, `AbortSignal`, same key-getter pattern
+- `OpenAIByokProvider` (`src/llm/openai-byok.ts`): OpenAI SDK (separate from `LocalLmProvider`), live model list from `/models`, exact token counts
+- `src/llm/routing.ts` `buildProvider()` — `anthropic`/`gemini`/`openai` cases filled in
+- Settings Webview now shows real model lists for all three BYOK providers
+
+**M4.2 — Agent prompt generation (F12):**
+- `saga.generateAgentPrompt` command — right-click story in tree
+- `src/generation/agent-prompt.ts` — `generateAgentPrompt(story, contextTexts, relevantFiles, preset, signal?)` → `GenerationResult<string>`
+- `src/context/workspace-scanner.ts` — heuristic file relevance scoring (filename/path vs story title+labels); stack detection (reads `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`); top-N candidate files
+- Pre-generation: QuickPick multi-select lets user trim candidate files before the LLM call
+- `src/webview/agent-prompt-panel.ts` + `webview-ui/src/AgentPromptPanel.tsx` + `webview-ui/src/vscode-agent-prompt.ts` — single-instance Webview panel; target preset picker (Claude Code / Copilot / Gemini CLI / generic); token count in header; Copy to Clipboard + Save buttons
+- Output saved to `.saga/prompts/STORY-NNN.prompt.md` (on Save) and/or clipboard
+- `src/saga-repo.ts` — `writePrompt(sagaRoot, storyId, content)` helper
+
+**M4.3 — AGENTS.md generation (F13):**
+- `saga.generateAgentsMd` command — Command Palette + Epics & Stories view toolbar button
+- `src/generation/agents-md.ts` — `generateAgentsMd(workspaceRoot, workspaceInfo, contextTexts, signal?)` → `GenerationResult<string>`
+- `src/context/workspace-scanner.ts` (shared with M4.2) — stack detection + directory layout (2 levels, filtered) + existing `AGENTS.md` content
+- `src/agents-md-lock.ts` — `readLock(sagaRoot)` / `writeLock(sagaRoot, hash)` — SHA-256 of last generated content, stored at `.saga/AGENTS.md.lock`; warns if `AGENTS.md` has been hand-edited since last generation
+- Diff shown via native VS Code diff editor (`vscode.diff(oldUri, newUri, 'AGENTS.md changes')`); user accepts via QuickPick confirm
+- `src/webview/agents-md-panel.ts` + `webview-ui/src/AgentsMdPanel.tsx` + `webview-ui/src/vscode-agents-md.ts` — single-instance Webview panel; shows generated content with diff view, Accept/Regenerate/Discard
 
 ## Commands
 
@@ -99,7 +123,7 @@ Run `npm run package` before F5 whenever Webview source has changed.
 
 Two core interfaces carry extensibility:
 
-- **`LLMProvider`** (`src/llm/provider.ts`) — provider-agnostic AI access. Adapters: `VsCodeLmProvider` (Copilot), `LocalLmProvider` (Ollama/LM Studio). BYOK adapters come in M4.
+- **`LLMProvider`** (`src/llm/provider.ts`) — provider-agnostic AI access. Adapters: `VsCodeLmProvider` (Copilot), `LocalLmProvider` (Ollama/LM Studio), `AnthropicProvider`, `GeminiProvider`, `OpenAIByokProvider` (all M4.1).
 - **`TrackerAdapter`** — provider-agnostic tracker sync (M2+).
 
 ### Implemented modules
@@ -142,19 +166,33 @@ Two core interfaces carry extensibility:
 | Settings editor React | `webview-ui/src/SettingsEditor.tsx` | AI Provider, Model Routing (live picker), Tracker (Jira + ADO forms, Test Connection, credentials), Budget |
 | Generation review React | `webview-ui/src/GenerationReview.tsx` | Inline edit, INVEST badges + issues, per-story refine, validate all, refine all, token display |
 | Sync review React | `webview-ui/src/SyncReview.tsx` | Grouped sections (local-only/remote-only/conflicts/in-sync); conflict field diff table; resolution pickers |
+| Anthropic adapter | `src/llm/anthropic.ts` | BYOK; Anthropic SDK; exact token counts; key via `() => Promise<string\|undefined>` callback; `AbortSignal` |
+| Gemini adapter | `src/llm/gemini.ts` | BYOK; Google Generative AI SDK; exact token counts; key callback; `AbortSignal` |
+| OpenAI BYOK adapter | `src/llm/openai-byok.ts` | BYOK; OpenAI SDK; live `/models` list; exact token counts; key callback |
+| Workspace scanner | `src/context/workspace-scanner.ts` | Heuristic file relevance scoring; stack detection (`package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod`); directory layout; shared by F12+F13 |
+| Agent prompt generator | `src/generation/agent-prompt.ts` | `generateAgentPrompt(story, contextTexts, relevantFiles, preset, signal?)` → `GenerationResult<string>` |
+| AGENTS.md generator | `src/generation/agents-md.ts` | `generateAgentsMd(workspaceRoot, workspaceInfo, contextTexts, signal?)` → `GenerationResult<string>` |
+| AGENTS.md lock | `src/agents-md-lock.ts` | `readLock` / `writeLock` — SHA-256 of last generated content at `.saga/AGENTS.md.lock`; detects hand-edits |
+| Agent prompt panel | `src/webview/agent-prompt-panel.ts` | Single-instance; target preset picker; token count; Copy + Save; `data-panel="agent-prompt"` |
+| AGENTS.md panel | `src/webview/agents-md-panel.ts` | Single-instance; diff view; Accept/Regenerate/Discard; `data-panel="agents-md"` |
+| Agent prompt bridge | `webview-ui/src/vscode-agent-prompt.ts` | Typed postMessage: `load → save\|copy\|regenerate → saveAck` |
+| AGENTS.md bridge | `webview-ui/src/vscode-agents-md.ts` | Typed postMessage: `load → accept\|regenerate → acceptAck` |
+| Agent prompt React | `webview-ui/src/AgentPromptPanel.tsx` | Preset tabs; markdown preview; token display; Copy/Save buttons |
+| AGENTS.md React | `webview-ui/src/AgentsMdPanel.tsx` | Generated content view; diff comparison; Accept/Regenerate/Discard |
 
 ### `.saga/` folder (source of truth)
 ```
 .saga/
-├── config.yaml       # non-secret: provider routing, model IDs, tracker defaults
-├── context/          # registered files + inline-NNN.md + context-registry.yaml
-├── epics/            # EPIC-NNN.yaml
-├── stories/          # STORY-NNN.yaml
-├── prompts/          # generated agent prompts (M4)
-├── templates/        # user-overridable Handlebars templates
-└── .sync/            # gitignored: remote-ID mappings and last-synced snapshots
-    ├── mappings.json     # sagaId → { jira|ado: { key, url, last_synced_hash, last_synced_at } }
-    └── conflicts.json    # transient: [ "STORY-003", "EPIC-001", ... ] — cleared after sync apply
+├── config.yaml           # non-secret: provider routing, model IDs, tracker defaults
+├── context/              # registered files + inline-NNN.md + context-registry.yaml
+├── epics/                # EPIC-NNN.yaml
+├── stories/              # STORY-NNN.yaml
+├── prompts/              # generated agent prompts: STORY-NNN.prompt.md (M4.2)
+├── templates/            # user-overridable Handlebars templates
+├── AGENTS.md.lock        # SHA-256 of last generated AGENTS.md — detects hand-edits (M4.3)
+└── .sync/                # gitignored: remote-ID mappings and last-synced snapshots
+    ├── mappings.json         # sagaId → { jira|ado: { key, url, last_synced_hash, last_synced_at } }
+    └── conflicts.json        # transient: [ "STORY-003", "EPIC-001", ... ] — cleared after sync apply
 ```
 
 ### Build pipeline
@@ -175,13 +213,15 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **Settings Webview** — GUI over `config.yaml`; single-instance panel
 - **Generation Review Webview** — single-instance panel; `data-panel="generation-review"` routes `main.tsx` to the correct React component
 - **Sync Review Webview** — single-instance panel; `data-panel="sync-review"`; shows plan grouped by sync state; conflict cards with field diff table and resolution pickers
+- **Agent Prompt Webview** — single-instance panel; `data-panel="agent-prompt"`; target preset picker, markdown preview, token count, Copy to Clipboard + Save (M4.2)
+- **AGENTS.md Webview** — single-instance panel; `data-panel="agents-md"`; generated content, diff comparison, Accept/Regenerate/Discard (M4.3)
 
 ## Key constraints
 
 - **AI provider**: Default to VS Code LM API. BYOK and local are fallbacks. Class D (consumer OAuth token reuse) is permanently prohibited — Anthropic blocked Jan 2026, Google Feb 2026.
 - **Model routing**: `config.yaml` routing entries are a model ID string or `"auto"`. Always use `resolveProviderFromConfig(task, root)` — never the old `getProvider()` helper which ignores config.
 - **Model label**: every generation run must show `<model-id> (<provider>)` in the progress notification and the Generation Review panel header.
-- **Token usage**: log to Saga Output Channel and show in review panel header after every call. Label VS Code LM estimates `(est.)`. BYOK exact counts come in M4.
+- **Token usage**: log to Saga Output Channel and show in review panel header after every call. Label VS Code LM estimates `(est.)`. BYOK adapters (M4.1+) return exact counts from provider SDKs.
 - **Cancellation**: all generation `withProgress` must be `cancellable: true`. Convert `CancellationToken` → `AbortController` → `AbortSignal`; thread through `GenerationService` into `provider.generate()`. `onRegenerate` also receives the signal. Catch abort cleanly — info message, no error.
 - **Secrets**: `context.secrets` (SecretStorage) for every credential. Zero secrets in `.saga/` or committed files.
 - **LLM output**: always parse with Zod; never raw `JSON.parse`. Retry on parse failure with stricter prompt.
@@ -193,6 +233,12 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **Pull correctness**: when writing a pulled story, always run `StorySchema.parse()` on the merged object first, then call `hashStory()` on the parsed result. Store that hash as both `local_hash` and `remote.last_synced_hash`. This ensures `storyEffectiveStatus()` and push update-vs-create both work correctly after the pull. Never use `hashRemoteStory()` as the stored hash — it's only for classification during sync planning.
 - **Story Editor passthrough**: `StoryMsg` (extension) and `StoryData` (webview) must always carry `remote` and `local_hash` through the postMessage round-trip. These fields are never edited by the UI — they are opaque sync state. Dropping them on save loses the remote key (causing re-create on next push) and breaks drift detection.
 - **Testing**: `@vscode/test-electron` for VS Code host integration tests; Vitest for pure logic (parsers, validators).
+- **BYOK key pattern**: BYOK adapters (`AnthropicProvider`, `GeminiProvider`, `OpenAIByokProvider`) receive a `() => Promise<string | undefined>` key-getter callback at construction — never a raw key string, never a `SecretsManager` reference. This keeps the adapter testable and decoupled from the VS Code API.
+- **Agent prompt presets**: valid target presets are `claude-code | copilot | gemini-cli | generic`. The preset shapes prompt framing only (file-reference style, tool-expectation preamble) — the story content and AC are always included verbatim.
+- **Agent prompt file path**: output is always `.saga/prompts/STORY-NNN.prompt.md`. The `writePrompt(sagaRoot, storyId, content)` helper in `saga-repo.ts` handles path construction. Never save to the workspace root.
+- **AGENTS.md lock**: `writeLock` stores a SHA-256 of the exact string written to `AGENTS.md`. On re-generation, if `AGENTS.md` exists but its current hash differs from the lock, the user must confirm before overwriting. If no lock file exists, treat `AGENTS.md` as potentially hand-written and always warn.
+- **Workspace scanner**: never include `node_modules`, `.git`, `dist`, `build`, `out`, `.saga`, `.vscode` in any file listing. Respect a 200-file cap on candidate results to avoid freezing on large repos.
+- **Agent prompt codebase context**: v1 uses heuristic scoring only — filename/path string overlap with story title + labels, no embeddings. Score 0–1; include files with score > 0.1, capped at top 20. Embeddings are P2.
 
 ## Key dependencies
 
@@ -204,5 +250,7 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - `pdf-parse`, `mammoth` — text extraction from PDF/DOCX
 - `react`, `react-dom`, `vite`, `@vitejs/plugin-react` — Webview UI
 
-**To add (M4):**
-- `@anthropic-ai/sdk`, `@google/generative-ai` — BYOK provider adapters with exact token counts
+**To add (M4.1):**
+- `@anthropic-ai/sdk` — Anthropic BYOK adapter; exact token counts from `usage` in API response
+- `@google/genai` — Gemini BYOK adapter; exact token counts from `usageMetadata`
+- `openai` — OpenAI BYOK adapter; live `/models` list; exact token counts from `usage`

@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import { LLMProvider, LLMModelInfo } from './provider';
 import { VsCodeLmProvider } from './vscode-lm';
 import { LocalLmProvider } from './local';
+import { AnthropicProvider } from './anthropic';
+import { GeminiProvider } from './gemini';
+import { OpenAIByokProvider } from './openai-byok';
+import { SecretsManager, SecretKey } from '../secrets';
 import { readConfig, getSagaRoot } from '../saga-repo';
 
 export type RoutingTask =
@@ -22,10 +26,14 @@ export interface ResolvedProvider {
  * Reads config.yaml and returns the provider + model label for the given task.
  * Falls back gracefully: configured model → auto-tier → first available.
  * Never throws — always returns something or undefined if no provider is reachable.
+ *
+ * Pass `secrets` so BYOK providers (Anthropic, Gemini, OpenAI) can retrieve
+ * their keys from SecretStorage. Without it, only VS Code LM and local work.
  */
 export async function resolveProviderFromConfig(
     task: RoutingTask,
     workspaceRoot: vscode.Uri,
+    secrets?: SecretsManager,
 ): Promise<ResolvedProvider | undefined> {
     const sagaRoot = getSagaRoot(workspaceRoot);
 
@@ -49,14 +57,16 @@ export async function resolveProviderFromConfig(
     const ordered = dedupe([defaultProviderId, ...fallbackOrder]);
 
     for (const providerId of ordered) {
-        const candidate = buildProvider(providerId, localBaseUrl, routingValue);
+        const candidate = buildProvider(providerId, localBaseUrl, routingValue, secrets);
         if (!candidate) { continue; }
 
         const available = await candidate.provider.isAvailable();
         if (!available) { continue; }
 
-        // If routing is a specific model ID (not "auto"), verify it exists
-        if (routingValue !== 'auto' && providerId !== 'vscode-lm') {
+        // If routing is a specific model ID (not "auto"), verify it exists.
+        // Skip verification for vscode-lm (family matching, not exact IDs)
+        // and for OpenAI whose listModels() is network-only and may be slow.
+        if (routingValue !== 'auto' && providerId !== 'vscode-lm' && providerId !== 'openai') {
             try {
                 const models: LLMModelInfo[] = await candidate.provider.listModels();
                 const match = models.find((m) => m.id === routingValue);
@@ -81,24 +91,42 @@ function buildProvider(
     providerId: string,
     localBaseUrl: string,
     modelHint: string,
+    secrets?: SecretsManager,
 ): ResolvedProvider | undefined {
+    const model = modelHint !== 'auto' ? modelHint : undefined;
+
     switch (providerId) {
         case 'vscode-lm': {
-            const p = new VsCodeLmProvider(modelHint !== 'auto' ? modelHint : undefined);
-            const label = modelHint !== 'auto' ? `${modelHint} (Copilot)` : 'Copilot (auto)';
+            const p = new VsCodeLmProvider(model);
+            const label = model ? `${model} (Copilot)` : 'Copilot (auto)';
             return { provider: p, modelLabel: label };
         }
         case 'local': {
-            const model = modelHint !== 'auto' ? modelHint : undefined;
             const p = new LocalLmProvider(localBaseUrl, 'ollama', model);
             const label = model ? `${model} (Local)` : 'Local (auto)';
             return { provider: p, modelLabel: label };
         }
-        // BYOK providers not yet wired (M4) — skip silently
-        case 'anthropic':
-        case 'gemini':
-        case 'openai':
-            return undefined;
+        case 'anthropic': {
+            if (!secrets) { return undefined; }
+            const getKey = () => secrets.get(SecretKey.ANTHROPIC_API_KEY);
+            const p = new AnthropicProvider(getKey, model);
+            const label = model ? `${model} (Anthropic)` : 'Anthropic (auto)';
+            return { provider: p, modelLabel: label };
+        }
+        case 'gemini': {
+            if (!secrets) { return undefined; }
+            const getKey = () => secrets.get(SecretKey.GEMINI_API_KEY);
+            const p = new GeminiProvider(getKey, model);
+            const label = model ? `${model} (Gemini)` : 'Gemini (auto)';
+            return { provider: p, modelLabel: label };
+        }
+        case 'openai': {
+            if (!secrets) { return undefined; }
+            const getKey = () => secrets.get(SecretKey.OPENAI_API_KEY);
+            const p = new OpenAIByokProvider(getKey, model);
+            const label = model ? `${model} (OpenAI)` : 'OpenAI (auto)';
+            return { provider: p, modelLabel: label };
+        }
         default:
             return undefined;
     }

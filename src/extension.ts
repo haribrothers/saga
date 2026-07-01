@@ -107,7 +107,6 @@ async function trackerAwareDelete(opts: {
 
 export async function activate(context: vscode.ExtensionContext) {
     const secrets = new SecretsManager(context.secrets);
-    void secrets; // used by BYOK providers in M4
 
     // ── Workspace helpers ──────────────────────────────────────────────────────
     function requireRoot(): vscode.Uri | undefined {
@@ -230,7 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
         });
         if (instructions === undefined) { return; } // Escape pressed
 
-        const resolved = await resolveProviderFromConfig('epic_generation', root);
+        const resolved = await resolveProviderFromConfig('epic_generation', root, secrets);
         if (!resolved) {
             vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
             return;
@@ -269,7 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
             workspaceRoot: root,
             extensionUri: context.extensionUri,
             onRegenerate: async (signal) => {
-                const r = await resolveProviderFromConfig('epic_generation', root) ?? resolved;
+                const r = await resolveProviderFromConfig('epic_generation', root, secrets) ?? resolved;
                 const service = new GenerationService(r.provider);
                 const startId = await nextEpicId(sagaRoot);
                 const fresh = await service.generateEpics(contextTexts, startId, instructions, signal);
@@ -317,7 +316,7 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             if (instructions === undefined) { return; }
 
-            const resolved = await resolveProviderFromConfig('story_generation', root);
+            const resolved = await resolveProviderFromConfig('story_generation', root, secrets);
             if (!resolved) {
                 vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
                 return;
@@ -365,7 +364,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 workspaceRoot: root,
                 extensionUri: context.extensionUri,
                 onRegenerate: async (signal) => {
-                    const r = await resolveProviderFromConfig('story_generation', root) ?? resolved;
+                    const r = await resolveProviderFromConfig('story_generation', root, secrets) ?? resolved;
                     const service = new GenerationService(r.provider);
                     const startId = await nextStoryId(sagaRoot);
                     const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions, signal);
@@ -385,7 +384,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const stories = await listStories(sagaRoot);
         if (stories.length === 0) { vscode.window.showInformationMessage('No stories to validate yet.'); return; }
 
-        const resolved = await resolveProviderFromConfig('invest_validation', root);
+        const resolved = await resolveProviderFromConfig('invest_validation', root, secrets);
         const validator = new InvestValidator(resolved?.provider);
 
         const channel = getSagaChannel();
@@ -416,7 +415,7 @@ export async function activate(context: vscode.ExtensionContext) {
         async (storyId: string) => {
             const root = requireRoot();
             if (!root || !(await requireInit(root))) { return; }
-            const resolved = await resolveProviderFromConfig('invest_validation', root);
+            const resolved = await resolveProviderFromConfig('invest_validation', root, secrets);
             await StoryPanel.open(storyId, root, context.extensionUri, resolved?.provider);
         },
     );
@@ -1091,7 +1090,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const testGenCmd = vscode.commands.registerCommand('saga.testGeneration', async () => {
         const root = requireRoot();
         if (!root || !(await requireInit(root))) { return; }
-        const resolved = await resolveProviderFromConfig('story_generation', root);
+        const resolved = await resolveProviderFromConfig('story_generation', root, secrets);
         if (!resolved) {
             vscode.window.showErrorMessage('Saga: No AI provider available. Install GitHub Copilot or start Ollama.');
             return;

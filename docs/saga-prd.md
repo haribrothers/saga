@@ -78,14 +78,14 @@ Saga addresses all five by sitting where the code is, treating plans as files, a
 ├── stories/
 │   ├── STORY-001-guest-checkout.yaml
 │   └── STORY-002-saved-cards.yaml
-├── prompts/                 # generated agent prompts (optional, git-tracked)
+├── prompts/                 # generated agent prompts (git-tracked): STORY-NNN.prompt.md
 │   └── STORY-001.prompt.md
 ├── templates/               # user-overridable generation & prompt templates
 │   ├── story.hbs
 │   └── agent-prompt.hbs
-├── .sync/                   # sync state: remote IDs, hashes, last-synced snapshots
-│   └── mappings.json
-└── AGENTS.md.lock           # hash/manifest of last generated AGENTS.md
+├── AGENTS.md.lock           # SHA-256 of last generated AGENTS.md — detects hand-edits (M4.3)
+└── .sync/                   # sync state: remote IDs, hashes, last-synced snapshots
+    └── mappings.json
 ```
 
 - Everything in `.saga/` **except** `.sync/` cache internals is meant to be committed and code-reviewed.
@@ -490,8 +490,8 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 | `Saga: Clear Stories for Epic` | Tree right-click on epic | F25; deletes all stories under that epic; modal confirm |
 | `Saga: Clear Epics` | Palette | F25; deletes all epics and all stories; modal confirm |
 | `Saga: Clean Up` | Palette | F25; removes all epics, stories, prompts, and context; type `"delete all"` to confirm |
-| `Saga: Generate Agent Prompt` | Palette + story right-click | F12 |
-| `Saga: Generate AGENTS.md` | Palette + sidebar toolbar | F13 |
+| `Saga: Generate Agent Prompt` | Palette + story tree right-click | F12 (M4.2); QuickPick file trim → Agent Prompt Webview panel |
+| `Saga: Generate AGENTS.md` | Palette + Epics & Stories view toolbar button | F13 (M4.3); diff guard against hand-edits → AGENTS.md Webview panel |
 | `Saga: Push All to Tracker` | Palette + sidebar `↑` toolbar button | F15; pushes all unpushed/drifted epics then stories; progress per item |
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
 | `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) |
@@ -546,7 +546,7 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 |---|---|---|
 | **Local (Ollama / LM Studio)** | Exact — returned by the OpenAI-compatible API | Exact |
 | **VS Code LM (Copilot)** | Estimated — `model.countTokens()` called before the request | Estimated — character count ÷ 4 (rough heuristic) |
-| **BYOK (Anthropic / Gemini / OpenAI)** | Exact — returned by provider SDKs (wired in M4) | Exact |
+| **BYOK (Anthropic / Gemini / OpenAI)** | Exact — returned by provider SDKs (`usage` / `usageMetadata` fields) | Exact |
 
 - Estimated counts are labelled `(est.)` in the UI so users know the precision.
 - On Copilot there is no marginal cost, so token counts are informational only — useful for understanding prompt size relative to context window limits.
@@ -634,14 +634,79 @@ Because `.saga/` is the source of truth, but the tracker can also change:
 - **Safety:** sync is explicit (a command / button), previews changes before applying, and is idempotent. No background auto-push in v1.
 
 ### 8.5 Agent prompt generation (F12)
-- Right-click a story → **Saga: Generate Agent Prompt**.
-- Output is a structured Markdown prompt assembled from: the story + acceptance criteria, the relevant coding standards, and codebase context (Saga gathers candidate files via path heuristics + optional embeddings/symbol search, and lets the user trim before finalizing).
-- Target presets: **Claude Code**, **Copilot**, **Gemini CLI**, **generic**. The preset shapes the framing (e.g. file references, tool expectations).
-- Saved to `.saga/prompts/STORY-XXX.prompt.md` (optional) and/or copied to clipboard.
+
+Right-click a story in the tree → **Saga: Generate Agent Prompt**.
+
+**Flow:**
+1. `WorkspaceScanner` scores workspace files by heuristic relevance to the story (filename/path overlap with story title + labels). Top-20 candidates (score > 0.1) are shown in a **QuickPick multi-select** so the user can deselect irrelevant files before the LLM call. No embeddings in v1.
+2. Generation runs via `resolveProviderFromConfig('agent_prompt', root)` with `AbortSignal` support. Token usage logged to Saga Output Channel.
+3. Output opens in the **Agent Prompt Webview** (`data-panel="agent-prompt"`) — single-instance panel showing:
+   - **Target preset tabs**: Claude Code / Copilot / Gemini CLI / Generic. Switching preset re-formats the same underlying story content without a new LLM call.
+   - **Markdown preview** of the generated prompt.
+   - **Token count** in the panel header.
+   - **Copy to Clipboard** button (always available).
+   - **Save** button — writes to `.saga/prompts/STORY-NNN.prompt.md` via `writePrompt()` in `saga-repo.ts`.
+   - **Regenerate** button — re-runs generation with the same file selection.
+
+**Output format** (assembled by `AGENT_PROMPT_TEMPLATE` Handlebars template):
+```markdown
+# Task: <story title>
+
+## Story
+As a <as_a>, I want <i_want>, so that <so_that>.
+
+## Acceptance Criteria
+<Gherkin scenarios verbatim>
+
+## Relevant files
+<list of selected workspace files with relative paths>
+
+## Coding standards
+<extracted text from standards context files>
+
+## Notes for <preset>
+<preset-specific framing: file-reference style, tool expectations, etc.>
+```
+
+Saved to `.saga/prompts/STORY-NNN.prompt.md` — git-tracked alongside the story.
 
 ### 8.6 AGENTS.md generation (F13)
-- Command **Saga: Generate AGENTS.md** scans the workspace (package manifests, directory layout, scripts, detected stack) plus registered coding standards, and writes a single root `AGENTS.md`: project overview, structure, build/test/run commands, conventions, and do/don't notes.
-- Re-running diffs against `AGENTS.md.lock` and shows changes before overwriting (so hand edits aren't clobbered).
+
+Command **Saga: Generate AGENTS.md** (Command Palette + Epics & Stories view toolbar button).
+
+**Flow:**
+1. `WorkspaceScanner` collects workspace info: detected stack (from `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`), top-2-level directory layout (filtered — no `node_modules`/`.git`/`dist`), scripts/build commands from manifest, and any existing `AGENTS.md` content.
+2. Coding-standards context files are loaded from the context registry.
+3. Generation runs via `resolveProviderFromConfig('agents_md', root)` with `AbortSignal` support.
+4. **Diff guard:** if `AGENTS.md` already exists in the workspace root, its current SHA-256 is compared against `.saga/AGENTS.md.lock`. If they differ (hand-edited since last generation), a warning is shown before overwriting.
+5. Output opens in the **AGENTS.md Webview** (`data-panel="agents-md"`) — single-instance panel showing:
+   - **Generated content** — full rendered markdown of the proposed `AGENTS.md`.
+   - **Diff comparison** — side-by-side view of existing vs. proposed content (if an existing `AGENTS.md` is present).
+   - **Accept** — writes the file to the workspace root and updates `.saga/AGENTS.md.lock`.
+   - **Regenerate** — re-runs generation with the same context.
+   - **Discard** — closes without writing.
+
+**Output format** (assembled by `AGENTS_MD_TEMPLATE` Handlebars template):
+```markdown
+# AGENTS.md
+
+## Project overview
+<summary from context + detected stack>
+
+## Structure
+<top-2-level directory tree>
+
+## Build, test, and run
+<scripts extracted from manifest>
+
+## Conventions
+<from coding-standards context files>
+
+## Do / don't
+<inferred from standards + stack>
+```
+
+Written to `AGENTS.md` at the workspace root (not inside `.saga/`). The lock file at `.saga/AGENTS.md.lock` stores the SHA-256 so Saga can detect subsequent hand-edits before the next generation run.
 
 ---
 
@@ -704,7 +769,7 @@ ai:
     gemini:
       enabled: false                   # BYOK; has a free Flash tier
     openai:
-      enabled: false
+      enabled: false                   # BYOK; live /models list; key in SecretStorage
     local:
       enabled: false
       base_url: http://localhost:11434/v1   # Ollama default; LM Studio = http://localhost:1234/v1
@@ -829,11 +894,11 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M1 — Generate** | Context registration (F2), epic/story generation (F3, F4), INVEST validator (F5), tree view + editor (F6) | End-to-end: docs → reviewed stories in `.saga/`, no tracker yet |
 | **M1.5 — Settings UI** | Settings Webview panel (F23): provider selection + connection test, model routing overrides, BYOK key entry via SecretStorage, budget controls | Users can configure everything without editing YAML by hand |
 | **M1.6 — Generation UX** | Generation Review Webview (F3, F4, F5): pre-generation instructions input, interactive review panel with inline editing, INVEST validation badges, per-story and bulk refinement via LLM; inline text context (F24); delete epics/stories/cleanup (F25); model routing resolution wired to config.yaml; model label shown in progress + panel | Full human-in-the-loop generation flow with refinement |
-| **M1.7 — Generation quality** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local and BYOK (M4). Generation cancellation (F27): `cancellable: true` in progress notification; `AbortSignal` propagated through `GenerationService` → `LLMProvider`; clean "cancelled" notification on abort | Users can see token consumption and stop a generation mid-flight |
+| **M1.7 — Generation quality** | Token usage (F26): input/output counts captured after every generation/refinement call; shown in Generation Review panel header and Saga Output Channel; estimated for Copilot (labelled), exact for Local; exact for BYOK once M4.1 adapters are wired. Generation cancellation (F27): `cancellable: true` in progress notification; `AbortSignal` propagated through `GenerationService` → `LLMProvider`; clean "cancelled" notification on abort | Users can see token consumption and stop a generation mid-flight |
 | **M2 — Push** | Jira Cloud adapter (F9), ADO adapter (F10), field mapping, one-way push; `TrackerAdapter` interface, hash/sync-store, Settings Webview tracker section, `saga.pushEpic` + `saga.pushStory`, tree synced/drifted badges | Stories appear in the tracker |
 | **M2.1 — Push UX** | Epic-first enforcement (F15b): block story push if parent epic not yet pushed. Post-epic push offer (F15c): "Push Stories" action after epic push. Tracker-aware delete (F15d): offer remote delete when deleting a pushed item; graceful fallback if remote delete fails. Bulk push (F15): `saga.pushAll` command + sidebar button — push all unpushed/drifted epics then stories in order, progress per item. `deleteEpic`/`deleteStory` on `TrackerAdapter`. | Push flow is safe, guided, and efficient |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
-| **M4 — Code loop** | Agent prompt generation (F12), AGENTS.md (F13), API-key providers (F7 complete) | Planning ↔ code loop closed |
+| **M4 — Code loop** | **M4.1** BYOK adapters (F7 complete): `AnthropicProvider`, `GeminiProvider`, `OpenAIByokProvider` wired into routing + Settings UI. **M4.2** Agent prompt generation (F12): `saga.generateAgentPrompt` command, workspace file relevance scorer, Agent Prompt Webview panel (preset picker, Copy + Save). **M4.3** AGENTS.md generation (F13): `saga.generateAgentsMd` command, stack detection, AGENTS.md.lock diff guard, AGENTS.md Webview panel (diff view, Accept/Regenerate/Discard). | Planning ↔ code loop closed; all three provider classes fully wired |
 | **M5 — Polish & publish** | Templates (F16), bulk ops (F15), splitting assistant (F17), docs, telemetry opt-in | Marketplace release |
 
 ---
