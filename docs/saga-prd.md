@@ -188,12 +188,17 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F34 | Story splitting assistant — right-click a story with INVEST "small = warn/fail" to propose 2–3 smaller replacement stories; preview in Generation Review panel; saves via normal review flow | P1 |
 | F35 | Telemetry (opt-in) — anonymous usage events (command invocations, provider type, story count) sent only when the user explicitly opts in via settings; off by default; documented in README | P1 |
 | F36 | Onboarding "first run" checks — on `saga.init`, verify that at least one provider is enabled and warn if none are; surface direct links to configure in the Settings Webview | P1 |
+| F37 | Command title cleanup — drop the redundant `"Saga: "` prefix from all command titles (the Command Palette already groups by `category: "Saga"` and shows it as a separate column, so the prefix was pure duplication both there and in right-click menus) | P1 |
+| F38 | Command Palette / UI parity — every command registered in `package.json` must be reachable from a visible UI element (toolbar button, inline icon, context-menu item, or the new "More Actions" overflow menu), not just the Command Palette | P1 |
+| F39 | Design token spacing/radius scale — a shared CSS custom-property file (`tokens.css`) defining spacing steps, border radius, and font-size scale, imported by all Webview panel stylesheets so spacing is consistent instead of ad-hoc per-panel pixel values | P1 |
 
 ### UI surface notes
-- Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
+- Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path (F38). Commands with no natural toolbar/context-menu home live in the sidebar's **"More Actions" (`...`) overflow menu** — currently: Getting Started, Clear Epics, Clean Up, Open Template, Reset Template.
+- Command titles do **not** carry a `"Saga: "` prefix (F37) — the Command Palette's category column already provides that grouping, and the prefix was pure redundancy in right-click context menus where the user is already inside a Saga-owned view.
 - Heavy interactions (story editing, 3-way diff, sync review) use a **Webview panel** (React) opening in the editor area. The Getting Started / onboarding flow for new users is also a Webview panel.
 - Light interactions (provider selection, role tagging, confirmations) use native **QuickPick / Input boxes**.
 - The sidebar tree provides **inline toolbar buttons** for power-user access to generate, validate, and sync actions without opening menus.
+- All Webview panels share a common spacing/radius/font-size token scale (F39) defined once and imported everywhere, so panels feel like one system rather than seven independently-styled screens.
 
 ---
 

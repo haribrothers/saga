@@ -1679,6 +1679,23 @@ export async function activate(context: vscode.ExtensionContext) {
         await SettingsPanel.open(root, context.extensionUri, secrets);
     });
 
+    // ── saga.moreActions (F38) ────────────────────────────────────────────────
+    const moreActionsCmd = vscode.commands.registerCommand('saga.moreActions', async () => {
+        const items: Array<{ label: string; description: string; command: string }> = [
+            { label: '$(rocket) Getting Started', description: 'Guided onboarding: provider, context, first epic', command: 'saga.gettingStarted' },
+            { label: '$(files) Open Template', description: 'Edit a generation/prompt template', command: 'saga.openTemplate' },
+            { label: '$(discard) Reset Template', description: 'Revert a customized template to its default', command: 'saga.resetTemplate' },
+            { label: '$(clear-all) Clear Epics', description: 'Delete all epics and their stories', command: 'saga.clearEpics' },
+            { label: '$(trash) Clean Up', description: 'Remove the entire .saga/ workspace (double confirmation)', command: 'saga.cleanUp' },
+        ];
+        const picked = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Saga: More Actions',
+            title: 'Saga: More Actions',
+        });
+        if (!picked) { return; }
+        await vscode.commands.executeCommand(picked.command);
+    });
+
     // ── saga.testGeneration (M0 smoke test) ────────────────────────────────────
     const testGenCmd = vscode.commands.registerCommand('saga.testGeneration', async () => {
         const root = requireRoot();
@@ -1736,6 +1753,7 @@ export async function activate(context: vscode.ExtensionContext) {
         resetTemplateCmd,
         openContextFileCmd,
         openSettingsCmd,
+        moreActionsCmd,
         testGenCmd,
     );
 }

@@ -138,31 +138,35 @@ export function SettingsEditor() {
             </header>
 
             <div className="settings-body">
-                <ProviderSection
-                    config={state.config}
-                    providerStatus={state.providerStatus}
-                    secretsPresent={state.secretsPresent}
-                    testingProvider={state.testingProvider}
-                    onChangeConfig={setConfig}
-                    onTest={handleTest}
-                    onSaveSecret={handleSaveSecret}
-                />
+                <SettingsGroup title="AI">
+                    <ProviderSection
+                        config={state.config}
+                        providerStatus={state.providerStatus}
+                        secretsPresent={state.secretsPresent}
+                        testingProvider={state.testingProvider}
+                        onChangeConfig={setConfig}
+                        onTest={handleTest}
+                        onSaveSecret={handleSaveSecret}
+                    />
+                    <RoutingSection config={state.config} availableModels={state.availableModels} onChangeConfig={setConfig} />
+                </SettingsGroup>
 
-                <RoutingSection config={state.config} availableModels={state.availableModels} onChangeConfig={setConfig} />
+                <SettingsGroup title="Integrations">
+                    <TrackerSection
+                        config={state.config}
+                        secretsPresent={state.secretsPresent}
+                        testingTracker={state.testingTracker}
+                        trackerStatus={state.trackerStatus}
+                        onChangeConfig={setConfig}
+                        onSaveTrackerSecret={handleSaveTrackerSecret}
+                        onTestTracker={handleTestTracker}
+                    />
+                </SettingsGroup>
 
-                <TrackerSection
-                    config={state.config}
-                    secretsPresent={state.secretsPresent}
-                    testingTracker={state.testingTracker}
-                    trackerStatus={state.trackerStatus}
-                    onChangeConfig={setConfig}
-                    onSaveTrackerSecret={handleSaveTrackerSecret}
-                    onTestTracker={handleTestTracker}
-                />
-
-                <BudgetSection config={state.config} onChangeConfig={setConfig} />
-
-                <TelemetrySection config={state.config} onChangeConfig={setConfig} />
+                <SettingsGroup title="Preferences">
+                    <BudgetSection config={state.config} onChangeConfig={setConfig} />
+                    <TelemetrySection config={state.config} onChangeConfig={setConfig} />
+                </SettingsGroup>
             </div>
         </div>
     );
@@ -645,6 +649,18 @@ function TelemetrySection({ config, onChangeConfig }: { config: SettingsConfigDa
 }
 
 // ─── Layout helpers ───────────────────────────────────────────────────────────
+
+/** Visually clusters related Sections under one larger heading (AI / Integrations / Preferences). */
+function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+        <div className="settings-group">
+            <h1 className="settings-group-title">{title}</h1>
+            <div className="settings-group-body">
+                {children}
+            </div>
+        </div>
+    );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (

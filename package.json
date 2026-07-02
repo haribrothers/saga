@@ -15,154 +15,161 @@
     "commands": [
       {
         "command": "saga.init",
-        "title": "Saga: Init",
+        "title": "Init",
         "category": "Saga"
       },
       {
         "command": "saga.gettingStarted",
-        "title": "Saga: Getting Started",
+        "title": "Getting Started",
         "category": "Saga"
       },
       {
         "command": "saga.addContextFile",
-        "title": "Saga: Add Context File",
+        "title": "Add Context File",
         "category": "Saga",
         "icon": "$(add)"
       },
       {
         "command": "saga.generateEpics",
-        "title": "Saga: Generate Epics",
+        "title": "Generate Epics",
         "category": "Saga",
         "icon": "$(sparkle)"
       },
       {
         "command": "saga.generateStoriesForEpic",
-        "title": "Saga: Generate Stories for Epic",
+        "title": "Generate Stories for Epic",
         "category": "Saga",
         "icon": "$(sparkle)"
       },
       {
         "command": "saga.validateStories",
-        "title": "Saga: Validate Stories",
+        "title": "Validate Stories",
         "category": "Saga",
         "icon": "$(check-all)"
       },
       {
         "command": "saga.openStory",
-        "title": "Saga: Open Story",
+        "title": "Open Story",
         "category": "Saga"
       },
       {
         "command": "saga.addInlineContext",
-        "title": "Saga: Add Inline Context",
+        "title": "Add Inline Context",
         "category": "Saga",
         "icon": "$(edit)"
       },
       {
         "command": "saga.deleteEpic",
-        "title": "Saga: Delete Epic",
+        "title": "Delete Epic",
         "category": "Saga",
         "icon": "$(trash)"
       },
       {
         "command": "saga.deleteStory",
-        "title": "Saga: Delete Story",
+        "title": "Delete Story",
         "category": "Saga",
         "icon": "$(trash)"
       },
       {
         "command": "saga.clearStoriesForEpic",
-        "title": "Saga: Clear Stories for Epic",
-        "category": "Saga"
+        "title": "Clear Stories for Epic",
+        "category": "Saga",
+        "icon": "$(clear-all)"
       },
       {
         "command": "saga.clearEpics",
-        "title": "Saga: Clear Epics",
+        "title": "Clear Epics",
         "category": "Saga"
       },
       {
         "command": "saga.cleanUp",
-        "title": "Saga: Clean Up",
+        "title": "Clean Up",
         "category": "Saga"
       },
       {
         "command": "saga.pushEpic",
-        "title": "Saga: Push Epic to Tracker",
+        "title": "Push Epic to Tracker",
         "category": "Saga",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "saga.pushStory",
-        "title": "Saga: Push Story to Tracker",
+        "title": "Push Story to Tracker",
         "category": "Saga",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "saga.pushAll",
-        "title": "Saga: Push All to Tracker",
+        "title": "Push All to Tracker",
         "category": "Saga",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "saga.sync",
-        "title": "Saga: Sync with Tracker",
+        "title": "Sync with Tracker",
         "category": "Saga",
         "icon": "$(sync)"
       },
       {
         "command": "saga.openSettings",
-        "title": "Saga: Open Settings",
+        "title": "Open Settings",
         "category": "Saga",
         "icon": "$(settings-gear)"
       },
       {
+        "command": "saga.moreActions",
+        "title": "More Actions",
+        "category": "Saga",
+        "icon": "$(ellipsis)"
+      },
+      {
         "command": "saga.generateAgentPrompt",
-        "title": "Saga: Generate Agent Prompt",
+        "title": "Generate Agent Prompt",
         "category": "Saga",
         "icon": "$(robot)"
       },
       {
         "command": "saga.generateAgentsMd",
-        "title": "Saga: Generate AGENTS.md",
+        "title": "Generate AGENTS.md",
         "category": "Saga",
         "icon": "$(file-code)"
       },
       {
         "command": "saga.generateSubtasks",
-        "title": "Saga: Generate Subtasks",
+        "title": "Generate Subtasks",
         "category": "Saga",
         "icon": "$(checklist)"
       },
       {
         "command": "saga.splitStory",
-        "title": "Saga: Split Story",
+        "title": "Split Story",
         "category": "Saga",
         "icon": "$(split-horizontal)"
       },
       {
         "command": "saga.exportBacklog",
-        "title": "Saga: Export Backlog",
+        "title": "Export Backlog",
         "category": "Saga",
         "icon": "$(export)"
       },
       {
         "command": "saga.openContextFile",
-        "title": "Saga: Open Context File",
+        "title": "Open Context File",
         "category": "Saga"
       },
       {
         "command": "saga.openTemplate",
-        "title": "Saga: Open Template",
+        "title": "Open Template",
         "category": "Saga"
       },
       {
         "command": "saga.resetTemplate",
-        "title": "Saga: Reset Template",
+        "title": "Reset Template",
         "category": "Saga"
       },
       {
         "command": "saga.testGeneration",
-        "title": "Saga: Test Generation",
+        "title": "Test Generation",
         "category": "Saga"
       }
     ],
@@ -242,6 +249,11 @@
           "command": "saga.openSettings",
           "when": "view == saga.storiesView || view == saga.contextView",
           "group": "navigation"
+        },
+        {
+          "command": "saga.moreActions",
+          "when": "view == saga.storiesView",
+          "group": "overflow"
         }
       ],
       "view/item/context": [

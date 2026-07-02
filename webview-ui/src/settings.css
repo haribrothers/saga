@@ -1,5 +1,7 @@
 /* Settings panel — VS Code token-aware styles */
 
+@import './tokens.css';
+
 .settings-root {
     display: flex;
     flex-direction: column;
@@ -23,7 +25,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 24px;
+    padding: var(--space-3) var(--space-5);
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBar-background);
     position: sticky;
@@ -39,18 +41,40 @@
 
 /* ── Body ── */
 .settings-body {
-    padding: 24px;
+    padding: var(--space-5);
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: var(--space-6);
     max-width: 760px;
+}
+
+/* ── Group — clusters related sections under one heading (AI / Integrations / Preferences) ── */
+.settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.settings-group-title {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: 0;
+    color: var(--vscode-foreground);
+}
+
+.settings-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--vscode-panel-border);
 }
 
 /* ── Section ── */
 .settings-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .section-title {
@@ -60,7 +84,7 @@
     letter-spacing: 0.06em;
     color: var(--vscode-descriptionForeground);
     margin: 0;
-    padding-bottom: 6px;
+    padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--vscode-panel-border);
 }
 
@@ -249,6 +273,58 @@
     border-radius: 0 4px 4px 0;
 }
 
+/* ── Tracker ── */
+.tracker-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-top: var(--space-2);
+}
+
+.tracker-subheading {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: 0;
+}
+
+.tracker-advanced {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-1) var(--space-3);
+}
+
+.tracker-advanced > details > summary.tracker-advanced-toggle {
+    padding: var(--space-2) 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    list-style: none;
+    outline: none;
+}
+.tracker-advanced > details > summary.tracker-advanced-toggle::-webkit-details-marker { display: none; }
+.tracker-advanced > details > summary.tracker-advanced-toggle::before {
+    content: '▸';
+    display: inline-block;
+    width: 1em;
+    color: var(--vscode-descriptionForeground);
+}
+.tracker-advanced > details[open] > summary.tracker-advanced-toggle::before { content: '▾'; }
+
+.tracker-advanced-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-1) 0 var(--space-3);
+}
+
+.tracker-test-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding-top: var(--space-1);
+}
+
 /* ── Shared form elements ── */
 .field { display: flex; flex-direction: column; gap: 4px; }
 
@@ -260,18 +336,19 @@
     letter-spacing: 0.05em;
 }
 
-.input-text {
+.input-text, .input-select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, transparent);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 5px 8px;
     font-size: 13px;
     font-family: inherit;
     width: 100%;
     outline: none;
 }
-.input-text:focus { border-color: var(--vscode-focusBorder); }
+.input-select { cursor: pointer; }
+.input-text:focus, .input-select:focus { border-color: var(--vscode-focusBorder); }
 .input-narrow { width: 90px; }
 
 .toggle-label {

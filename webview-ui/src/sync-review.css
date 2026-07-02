@@ -1,7 +1,5 @@
 /* Sync Review panel styles */
-:root {
-    --radius: 4px;
-}
+@import './tokens.css';
 
 .sync-root {
     font-family: var(--vscode-font-family);
@@ -53,7 +51,7 @@
 .pill {
     display: inline-block;
     padding: 1px 6px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     font-size: 0.8em;
     font-weight: 500;
     margin-left: 6px;
@@ -94,7 +92,7 @@
     padding: 6px 10px;
     background: var(--vscode-editor-background);
     border: 1px solid var(--vscode-panel-border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     flex-wrap: wrap;
 }
 
@@ -131,7 +129,7 @@
     padding: 10px 12px;
     background: var(--vscode-editor-background);
     border: 1px solid var(--vscode-charts-orange, #e8a838);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -211,7 +209,7 @@
     padding: 8px 12px;
     background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f44747) 15%, transparent);
     border: 1px solid var(--vscode-testing-iconFailed, #f44747);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     font-size: 0.9em;
 }
 
@@ -223,7 +221,7 @@
     background: var(--vscode-dropdown-background);
     color: var(--vscode-dropdown-foreground);
     border: 1px solid var(--vscode-dropdown-border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     padding: 2px 6px;
     font-size: 0.85em;
     cursor: pointer;
@@ -246,7 +244,7 @@
 
 .btn-primary, .btn-secondary {
     padding: 5px 14px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     border: none;
     font-size: 0.9em;
     cursor: pointer;

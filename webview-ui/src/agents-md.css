@@ -1,5 +1,7 @@
 /* AGENTS.md Panel */
 
+@import './tokens.css';
+
 .amd-root {
     display: flex;
     flex-direction: column;

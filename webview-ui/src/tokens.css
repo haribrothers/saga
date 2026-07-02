@@ -1,0 +1,29 @@
+/*
+ * Saga design tokens — shared spacing, radius, and font-size scale.
+ * Imported first by every panel's stylesheet so the seven Webview panels
+ * (story editor, settings, generation review, sync review, agent prompt,
+ * agents.md, getting started) read as one system instead of independently
+ * styled screens. Values are plain px custom properties — VS Code's own
+ * theme still drives all color via --vscode-* variables; this file only
+ * standardizes layout rhythm.
+ */
+
+:root {
+    /* Spacing scale — 4px base unit. Prefer these over ad-hoc px values. */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+
+    /* Border radius */
+    --radius-sm: 3px;
+    --radius-md: 6px;
+
+    /* Font sizes — derived from VS Code's own editor font size where sensible */
+    --font-size-sm: 0.75em;
+    --font-size-base: var(--vscode-font-size, 13px);
+    --font-size-lg: 1.1em;
+    --font-size-xl: 1.4em;
+}

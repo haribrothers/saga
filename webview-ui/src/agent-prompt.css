@@ -1,5 +1,7 @@
 /* Agent Prompt Panel */
 
+@import './tokens.css';
+
 .ap-root {
     display: flex;
     flex-direction: column;
