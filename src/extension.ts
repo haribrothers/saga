@@ -4,6 +4,8 @@ import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
 import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, nextSubtaskId, writePrompt, readContextRegistry, getContextDir } from './saga-repo';
 import { openTemplate, resetTemplate } from './template-manager';
 import { collectBacklog } from './export/collect';
+import { GettingStartedPanel } from './webview/getting-started-panel';
+import { TelemetryReporter } from './telemetry';
 import { ContextManager } from './context/manager';
 import { detectStack, findRelevantFiles, getDirectoryLayout, getRelevantFileContents } from './context/workspace-scanner';
 import { generateAgentPrompt } from './generation/agent-prompt';
@@ -37,6 +39,10 @@ function getSagaChannel(): vscode.OutputChannel {
         sagaOutputChannel = vscode.window.createOutputChannel('Saga');
     }
     return sagaOutputChannel;
+}
+
+function getTelemetry(workspaceRoot: vscode.Uri): TelemetryReporter {
+    return new TelemetryReporter(workspaceRoot, getSagaChannel());
 }
 
 function logTokenUsage(
@@ -170,11 +176,14 @@ export async function activate(context: vscode.ExtensionContext) {
         );
         await initTreeProviders(root);
         await setSagaContext(root);
-        const choice = await vscode.window.showInformationMessage(
-            'Saga initialized! Configure your AI provider in Settings.',
-            'Open Settings',
-        );
-        if (choice === 'Open Settings') { await vscode.commands.executeCommand('saga.openSettings'); }
+        await GettingStartedPanel.open(root, context.extensionUri);
+    });
+
+    // ── saga.gettingStarted ────────────────────────────────────────────────────
+    const gettingStartedCmd = vscode.commands.registerCommand('saga.gettingStarted', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        await GettingStartedPanel.open(root, context.extensionUri);
     });
 
     // ── saga.addContextFile ────────────────────────────────────────────────────
@@ -266,6 +275,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (cancelled) { vscode.window.showInformationMessage('Saga: Generation cancelled.'); return; }
 
         logTokenUsage('epic_generation', resolved.modelLabel, result.usage);
+        void getTelemetry(root).track({ command: 'saga.generateEpics', provider: resolved.modelLabel, storyCount: result.items.length });
 
         await GenerationReviewPanel.open({
             mode: 'epics',
@@ -362,6 +372,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (storyCancelled) { vscode.window.showInformationMessage('Saga: Generation cancelled.'); return; }
 
             logTokenUsage('story_generation', resolved.modelLabel, storyResult.usage);
+            void getTelemetry(root).track({ command: 'saga.generateStoriesForEpic', provider: resolved.modelLabel, storyCount: storyResult.items.length });
 
             await GenerationReviewPanel.open({
                 mode: 'stories',
@@ -1056,6 +1067,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         channel.appendLine(`\n${'─'.repeat(50)}\n${summary}`);
         vscode.window.showInformationMessage(summary);
+        void getTelemetry(root).track({ command: 'saga.pushAll', provider: adapter.provider, storyCount: storiesToPush.length });
     });
 
     // ── saga.sync (M3 — F11) ──────────────────────────────────────────────────
@@ -1330,6 +1342,110 @@ export async function activate(context: vscode.ExtensionContext) {
         },
     );
 
+    // ── saga.splitStory (F34) ─────────────────────────────────────────────────
+    const splitStoryCmd = vscode.commands.registerCommand(
+        'saga.splitStory',
+        async (arg?: string | { story?: { id: string }; id?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            let storyId: string | undefined;
+            if (typeof arg === 'string') { storyId = arg; }
+            else if (arg && typeof arg === 'object') {
+                storyId = (arg as { story?: { id: string } }).story?.id ?? (arg as { id?: string }).id;
+            }
+            if (!storyId) {
+                const stories = await listStories(sagaRoot);
+                if (stories.length === 0) { vscode.window.showWarningMessage('No stories found. Generate stories first.'); return; }
+                const picked = await vscode.window.showQuickPick(
+                    stories.map((s) => ({ label: s.id, description: `${s.epic} — ${s.title}` })),
+                    { placeHolder: 'Select a story to split' },
+                );
+                if (!picked) { return; }
+                storyId = picked.label;
+            }
+
+            const story = await readStory(sagaRoot, storyId);
+
+            // Confirm before splitting a story that doesn't actually look too large —
+            // re-validate rather than trusting a possibly-stale story.invest.
+            const validator = new InvestValidator();
+            const invest = await validator.validate(story);
+            if (invest.small.result === 'pass') {
+                const proceed = await vscode.window.showWarningMessage(
+                    `${storyId} doesn't currently fail the INVEST "Small" check. Split it anyway?`,
+                    { modal: true },
+                    'Split Anyway',
+                );
+                if (proceed !== 'Split Anyway') { return; }
+            }
+
+            const resolved = await resolveProviderFromConfig('story_splitting', root, secrets);
+            if (!resolved) {
+                vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
+                return;
+            }
+
+            const storyForSplit: Story = { ...story, invest };
+
+            let result: Awaited<ReturnType<GenerationService['splitStory']>> | undefined;
+            let cancelled = false;
+
+            const runSplit = async (signal: AbortSignal) => {
+                const service = new GenerationService(resolved.provider, context.extensionUri, sagaRoot);
+                const startId = await nextStoryId(sagaRoot);
+                return service.splitStory(storyForSplit, startId, signal);
+            };
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Saga: Splitting ${storyId} via ${resolved.modelLabel}…`,
+                    cancellable: true,
+                },
+                async (_progress, token) => {
+                    const abort = new AbortController();
+                    token.onCancellationRequested(() => abort.abort());
+                    try {
+                        result = await runSplit(abort.signal);
+                    } catch (err) {
+                        if (isAbortError(err)) { cancelled = true; }
+                        else { throw err; }
+                    }
+                },
+            );
+
+            if (cancelled) { vscode.window.showInformationMessage('Saga: Story split cancelled.'); return; }
+            if (!result) { return; }
+
+            logTokenUsage('story_splitting', resolved.modelLabel, result.usage);
+
+            await GenerationReviewPanel.open({
+                mode: 'stories',
+                epics: [],
+                stories: result.items,
+                modelLabel: resolved.modelLabel,
+                contextFileCount: 0,
+                tokenUsage: result.usage,
+                workspaceRoot: root,
+                extensionUri: context.extensionUri,
+                onRegenerate: async (signal) => {
+                    const r = await resolveProviderFromConfig('story_splitting', root, secrets) ?? resolved;
+                    const service = new GenerationService(r.provider, context.extensionUri, sagaRoot);
+                    const startId = await nextStoryId(sagaRoot);
+                    const fresh = await service.splitStory(storyForSplit, startId, signal);
+                    logTokenUsage('story_splitting', r.modelLabel, fresh.usage);
+                    return { epics: [], stories: fresh.items, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
+                },
+                // Only delete the original once the replacement stories are safely persisted.
+                onSaved: async () => {
+                    await vscode.commands.executeCommand('saga.deleteStory', storyId);
+                },
+            });
+        },
+    );
+
     // ── saga.generateAgentsMd (F13) ───────────────────────────────────────────
     const generateAgentsMdCmd = vscode.commands.registerCommand('saga.generateAgentsMd', async () => {
         const root = requireRoot();
@@ -1595,6 +1711,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         initCmd,
+        gettingStartedCmd,
         addContextFileCmd,
         addInlineContextCmd,
         generateEpicsCmd,
@@ -1612,6 +1729,7 @@ export async function activate(context: vscode.ExtensionContext) {
         syncCmd,
         generateAgentPromptCmd,
         generateSubtasksCmd,
+        splitStoryCmd,
         generateAgentsMdCmd,
         exportBacklogCmd,
         openTemplateCmd,

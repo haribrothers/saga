@@ -67,6 +67,9 @@ export interface SettingsConfigData {
             story_work_item_type: string;
         };
     };
+    telemetry: {
+        enabled: boolean;
+    };
 }
 
 type ExtensionToWebview =
@@ -240,6 +243,9 @@ export class SettingsPanel {
                         story_work_item_type: raw.tracker.ado?.story_work_item_type ?? 'User Story',
                     },
                 },
+                telemetry: {
+                    enabled: raw.telemetry?.enabled ?? false,
+                },
             };
         } catch {
             return defaultSettingsConfig();
@@ -298,6 +304,7 @@ export class SettingsPanel {
         setIn(doc, ['tracker', 'ado', 'area_path'],           data.tracker.ado.area_path);
         setIn(doc, ['tracker', 'ado', 'epic_work_item_type'], data.tracker.ado.epic_work_item_type);
         setIn(doc, ['tracker', 'ado', 'story_work_item_type'],data.tracker.ado.story_work_item_type);
+        setIn(doc, ['telemetry', 'enabled'], data.telemetry.enabled);
 
         await vscode.workspace.fs.writeFile(configUri, Buffer.from(doc.toString(), 'utf-8'));
     }
@@ -582,5 +589,6 @@ function defaultSettingsConfig(): SettingsConfigData {
             jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', subtask_issue_type: 'Sub-task', ac_field_id: 'description', epic_link_style: 'parent', story_points_field_id: '' },
             ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story' },
         },
+        telemetry: { enabled: false },
     };
 }

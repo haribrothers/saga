@@ -161,6 +161,8 @@ export function SettingsEditor() {
                 />
 
                 <BudgetSection config={state.config} onChangeConfig={setConfig} />
+
+                <TelemetrySection config={state.config} onChangeConfig={setConfig} />
             </div>
         </div>
     );
@@ -611,6 +613,32 @@ function BudgetSection({ config, onChangeConfig }: { config: SettingsConfigData;
                         Show token / cost preview before each generation run
                     </label>
                 </div>
+            </div>
+        </Section>
+    );
+}
+
+function TelemetrySection({ config, onChangeConfig }: { config: SettingsConfigData; onChangeConfig: (c: SettingsConfigData) => void }) {
+    const setTelemetry = (enabled: boolean) => {
+        onChangeConfig({ ...config, telemetry: { enabled } });
+    };
+
+    return (
+        <Section title="Telemetry">
+            <p className="section-desc">
+                Anonymous local event logging — command name, provider type, story count. Never your story titles,
+                descriptions, or context files. Off by default. Currently logs to the Saga Output Channel only —
+                no data leaves your machine.
+            </p>
+            <div className="field">
+                <label className="toggle-label">
+                    <input
+                        type="checkbox"
+                        checked={config.telemetry.enabled}
+                        onChange={(e) => setTelemetry(e.target.checked)}
+                    />
+                    Enable anonymous usage logging
+                </label>
             </div>
         </Section>
     );

@@ -19,6 +19,11 @@
         "category": "Saga"
       },
       {
+        "command": "saga.gettingStarted",
+        "title": "Saga: Getting Started",
+        "category": "Saga"
+      },
+      {
         "command": "saga.addContextFile",
         "title": "Saga: Add Context File",
         "category": "Saga",
@@ -127,6 +132,12 @@
         "title": "Saga: Generate Subtasks",
         "category": "Saga",
         "icon": "$(checklist)"
+      },
+      {
+        "command": "saga.splitStory",
+        "title": "Saga: Split Story",
+        "category": "Saga",
+        "icon": "$(split-horizontal)"
       },
       {
         "command": "saga.exportBacklog",
@@ -270,9 +281,14 @@
           "group": "saga@1"
         },
         {
-          "command": "saga.deleteStory",
+          "command": "saga.splitStory",
           "when": "viewItem == sagaStory",
           "group": "saga@2"
+        },
+        {
+          "command": "saga.deleteStory",
+          "when": "viewItem == sagaStory",
+          "group": "saga@3"
         }
       ],
       "explorer/context": [

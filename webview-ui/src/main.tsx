@@ -6,6 +6,7 @@ import { GenerationReview } from './GenerationReview';
 import { SyncReview } from './SyncReview';
 import { AgentPromptPanel } from './AgentPromptPanel';
 import { AgentsMdPanel } from './AgentsMdPanel';
+import { GettingStartedPanel } from './GettingStartedPanel';
 
 const rootEl = document.getElementById('root')!;
 const panel = rootEl.dataset.panel;
@@ -17,6 +18,7 @@ createRoot(rootEl).render(
             : panel === 'sync-review' ? <SyncReview />
             : panel === 'agent-prompt' ? <AgentPromptPanel />
             : panel === 'agents-md' ? <AgentsMdPanel />
+            : panel === 'getting-started' ? <GettingStartedPanel />
             : <StoryEditor />}
     </StrictMode>,
 );

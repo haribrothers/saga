@@ -12,6 +12,7 @@ const TEMPLATE_LABELS: Record<TemplateName, string> = {
     'epic-generation': 'Epic Generation',
     'story-generation': 'Story Generation',
     'story-refine': 'Story Refine',
+    'story-split': 'Story Split',
     'agent-prompt': 'Agent Prompt',
     'agents-md': 'AGENTS.md',
 };

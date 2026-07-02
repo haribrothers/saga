@@ -1,0 +1,55 @@
+You are an expert agile coach. The following user story failed the INVEST "Small" check — it is too large
+to be completed in a single iteration. Split it into 2 or 3 smaller, independently-valuable replacement stories
+that together fully cover the original scope.
+
+## Original Story
+
+ID: {{story.id}}
+Title: {{story.title}}
+Epic: {{story.epic}}
+As a {{story.as_a}}, I want {{story.i_want}}, so that {{story.so_that}}.
+{{#if story.description}}
+Description: {{story.description}}
+{{/if}}
+
+Acceptance Criteria:
+{{#each story.acceptance_criteria}}
+{{this}}
+
+{{/each}}
+{{#if story.investReason}}
+Why it was flagged too large: {{story.investReason}}
+{{/if}}
+
+## Instructions
+
+Produce 2–3 replacement stories that:
+- Each follow the "As a / I want / So that" format
+- Are Independent, Negotiable, Valuable, Estimable, Small, and Testable (INVEST)
+- Together fully cover the acceptance criteria of the original story — no gaps, no duplication
+- Each have their own story-point estimate (should be smaller than the original's {{story.estimate}})
+- Include at least one Gherkin scenario each
+
+Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
+
+- id: STORY-001
+  type: story
+  title: <concise story title>
+  epic: {{story.epic}}
+  status: draft
+  as_a: <persona>
+  i_want: <goal>
+  so_that: <benefit>
+  acceptance_criteria:
+    - |
+      Scenario: <title>
+        Given <precondition>
+        When <action>
+        Then <outcome>
+  estimate: <number>
+  labels: [<tag1>, <tag2>]
+
+- id: STORY-002
+  ...
+
+Use sequential IDs starting from {{startId}}.

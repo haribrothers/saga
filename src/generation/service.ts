@@ -3,7 +3,7 @@ import * as yaml from 'yaml';
 import { z } from 'zod';
 import { LLMProvider, TokenUsage } from '../llm/provider';
 import { Epic, EpicSchema, Story, StorySchema, ContextEntry } from '../schema';
-import { buildEpicGenPrompt, buildStoryGenPrompt, buildEpicRefinePrompt, buildStoryRefinePrompt } from './prompts';
+import { buildEpicGenPrompt, buildStoryGenPrompt, buildEpicRefinePrompt, buildStoryRefinePrompt, buildStorySplitPrompt } from './prompts';
 
 const MAX_RETRIES = 2;
 
@@ -108,6 +108,35 @@ export class GenerationService {
         );
         const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
         return { items: this.parseStoryList(text, epicId), usage };
+    }
+
+    /**
+     * Split a single story (that failed the INVEST "Small" check) into 2–3
+     * smaller replacement stories covering the same scope. Returns fresh
+     * stories with new sequential IDs starting from startId; does NOT write
+     * to disk or delete the original — the caller owns that after review.
+     */
+    async splitStory(story: Story, startId: string, signal?: AbortSignal): Promise<GenerationResult<Story>> {
+        const investReason = story.invest?.small?.result !== 'pass' ? story.invest?.small?.reason : undefined;
+        const prompt = await buildStorySplitPrompt(
+            this.extensionUri,
+            this.sagaRoot,
+            {
+                id: story.id,
+                title: story.title,
+                epic: story.epic,
+                as_a: story.as_a,
+                i_want: story.i_want,
+                so_that: story.so_that,
+                description: story.description,
+                acceptance_criteria: story.acceptance_criteria,
+                estimate: story.estimate,
+                investReason,
+            },
+            startId,
+        );
+        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
+        return { items: this.parseStoryList(text, story.epic), usage };
     }
 
     // ─── Private ──────────────────────────────────────────────────────────────

@@ -1,0 +1,154 @@
+/* Getting Started Panel */
+
+.gs-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    box-sizing: border-box;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+
+.gs-loading {
+    padding: 2rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* ── Header ── */
+
+.gs-header {
+    margin-bottom: 28px;
+}
+
+.gs-title {
+    font-size: 1.6em;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+}
+
+.gs-subtitle {
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* ── Steps ── */
+
+.gs-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+}
+
+.gs-step {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-sideBar-background, transparent);
+}
+
+.gs-step--done {
+    border-color: var(--vscode-charts-green, #4ec9b0);
+    opacity: 0.85;
+}
+
+.gs-step-marker {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85em;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+}
+
+.gs-step--done .gs-step-marker {
+    background: var(--vscode-charts-green, #4ec9b0);
+    color: var(--vscode-editor-background);
+}
+
+.gs-step-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.gs-step-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.gs-step-desc {
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.4;
+}
+
+/* ── Footer ── */
+
+.gs-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 28px;
+}
+
+.gs-btn {
+    padding: 6px 16px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-size: var(--vscode-font-size);
+    font-family: var(--vscode-font-family);
+    white-space: nowrap;
+}
+
+.gs-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.gs-btn-primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.gs-btn-primary:hover:not(:disabled) {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.gs-btn-secondary {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    flex-shrink: 0;
+}
+
+.gs-btn-secondary:hover:not(:disabled) {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.gs-btn-ghost {
+    background: transparent;
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-button-border, transparent);
+}
+
+.gs-btn-ghost:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground);
+}

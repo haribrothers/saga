@@ -65,6 +65,9 @@ export interface SettingsConfigData {
             story_work_item_type: string;
         };
     };
+    telemetry: {
+        enabled: boolean;
+    };
 }
 
 // ─── Message types ────────────────────────────────────────────────────────────

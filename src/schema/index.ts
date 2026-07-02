@@ -214,5 +214,13 @@ export const ConfigSchema = z.object({
             story_work_item_type: z.string().default('User Story'),
         }).optional(),
     }),
+    telemetry: z.object({
+        /**
+         * Anonymous local event logging (command name, provider type, story
+         * count — never content). Off by default. Currently logs to the Saga
+         * Output Channel only — no network calls, no external service.
+         */
+        enabled: z.boolean().default(false),
+    }).default({ enabled: false }),
 });
 export type Config = z.infer<typeof ConfigSchema>;

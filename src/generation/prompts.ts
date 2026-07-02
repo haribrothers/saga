@@ -122,6 +122,23 @@ export async function buildStoryRefinePrompt(
     return template({ stories: storiesForTemplate, instructions });
 }
 
+// ─── Story splitting ────────────────────────────────────────────────────────────
+
+export async function buildStorySplitPrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
+    story: {
+        id: string; title: string; epic: string; as_a: string;
+        i_want: string; so_that: string; description?: string;
+        acceptance_criteria: string[]; estimate?: number;
+        investReason?: string;
+    },
+    startId: string,
+): Promise<string> {
+    const template = await compileTemplate('story-split', extensionUri, sagaRoot);
+    return template({ story, startId });
+}
+
 // ─── Agent prompt generation ──────────────────────────────────────────────────
 
 export async function buildAgentPromptGenPrompt(

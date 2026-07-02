@@ -10,6 +10,7 @@ export const TEMPLATE_NAMES = [
     'epic-generation',
     'story-generation',
     'story-refine',
+    'story-split',
     'agent-prompt',
     'agents-md',
 ] as const;

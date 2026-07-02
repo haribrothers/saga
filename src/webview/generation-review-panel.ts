@@ -66,6 +66,8 @@ export interface GenerationReviewOptions {
     extensionUri: vscode.Uri;
     /** Called when user clicks Regenerate — re-runs generation and reloads the panel. Signal allows mid-flight cancellation. */
     onRegenerate: (signal: AbortSignal) => Promise<{ epics: Epic[]; stories: Story[]; modelLabel: string; tokenUsage?: TokenUsage }>;
+    /** Optional — called after a successful save, with the epics/stories written to disk. Used by flows like story splitting that need cleanup (e.g. deleting the original story) only once the replacement is safely persisted. */
+    onSaved?: (epics: Epic[], stories: Story[]) => Promise<void>;
 }
 
 export class GenerationReviewPanel {
@@ -217,16 +219,23 @@ export class GenerationReviewPanel {
         const sagaRoot = getSagaRoot(workspaceRoot);
 
         try {
+            let savedEpics: Epic[] = [];
+            let savedStories: Story[] = [];
             if (mode === 'epics') {
-                for (const d of epicDrafts) {
-                    await writeEpic(sagaRoot, draftToEpic(d));
+                savedEpics = epicDrafts.map(draftToEpic);
+                for (const e of savedEpics) {
+                    await writeEpic(sagaRoot, e);
                 }
                 vscode.window.showInformationMessage(`Saved ${epicDrafts.length} epic(s) to .saga/epics/`);
             } else {
-                for (const d of storyDrafts) {
-                    await writeStory(sagaRoot, draftToStory(d));
+                savedStories = storyDrafts.map(draftToStory);
+                for (const s of savedStories) {
+                    await writeStory(sagaRoot, s);
                 }
                 vscode.window.showInformationMessage(`Saved ${storyDrafts.length} story(ies) to .saga/stories/`);
+            }
+            if (this._opts.onSaved) {
+                await this._opts.onSaved(savedEpics, savedStories);
             }
             this.post({ type: 'saveAck' });
             this._panel.dispose();
