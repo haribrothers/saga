@@ -1,6 +1,6 @@
 import { LLMProvider, TokenUsage } from '../llm/provider';
 import { Story, ContextEntry } from '../schema';
-import { StackInfo, RelevantFile } from '../context/workspace-scanner';
+import { StackInfo, RelevantFile, RelevantFileContent } from '../context/workspace-scanner';
 import { buildAgentPromptGenPrompt } from './prompts';
 
 export interface AgentPromptResult {
@@ -22,10 +22,11 @@ export async function generateAgentPrompt(
     relevantFiles: RelevantFile[],
     context: Array<ContextEntry & { text: string }>,
     signal?: AbortSignal,
+    relevantFileContents?: RelevantFileContent[],
 ): Promise<AgentPromptResult> {
     signal?.throwIfAborted();
 
-    const userPrompt = buildAgentPromptGenPrompt(story, stack, relevantFiles, context);
+    const userPrompt = buildAgentPromptGenPrompt(story, stack, relevantFiles, context, relevantFileContents);
 
     const systemPrompt =
         'You are an expert software engineer. Generate a detailed, self-contained agent prompt ' +

@@ -1,4 +1,4 @@
-import { Epic, Story } from '../schema';
+import { Epic, Story, Subtask } from '../schema';
 
 // ─── Jira ─────────────────────────────────────────────────────────────────────
 
@@ -7,6 +7,8 @@ export interface JiraConfig {
     email: string;
     epicIssueType: string;   // e.g. "Epic" — varies by project type
     storyIssueType: string;  // e.g. "Story" or "User Story"
+    /** Issue type name for subtasks. e.g. "Sub-task" or "Subtask" — varies by project. */
+    subtaskIssueType: string;
     /** Field ID used to store acceptance criteria. Defaults to description. */
     acFieldId: string;
     /**
@@ -156,6 +158,20 @@ export function toJiraStoryFields(
     return fields;
 }
 
+export function toJiraSubtaskFields(
+    subtask: Subtask,
+    cfg: JiraConfig,
+    storyRemoteKey: string,
+): JiraIssueFields {
+    return {
+        summary: subtask.title,
+        description: toAdf(''),
+        issuetype: { name: cfg.subtaskIssueType },
+        project: { key: cfg.projectKey },
+        parent: { key: storyRemoteKey },
+    };
+}
+
 // ─── Azure DevOps ─────────────────────────────────────────────────────────────
 
 export interface AdoConfig {
@@ -245,6 +261,33 @@ export function toAdoStoryPatch(
             },
         });
     }
+
+    return ops;
+}
+
+export function toAdoSubtaskPatch(
+    subtask: Subtask,
+    cfg: AdoConfig,
+    storyWorkItemId: number,
+): AdoPatchOperation[] {
+    const ops: AdoPatchOperation[] = [
+        { op: 'add', path: '/fields/System.Title', value: subtask.title },
+        // "Task" work items use Closed as the terminal state on all standard process templates.
+        { op: 'add', path: '/fields/System.State', value: subtask.done ? 'Closed' : 'New' },
+    ];
+
+    if (cfg.areaPath) {
+        ops.push({ op: 'add', path: '/fields/System.AreaPath', value: cfg.areaPath });
+    }
+
+    ops.push({
+        op: 'add',
+        path: '/relations/-',
+        value: {
+            rel: 'System.LinkTypes.Hierarchy-Reverse',
+            url: `_apis/wit/workItems/${storyWorkItemId}`,
+        },
+    });
 
     return ops;
 }

@@ -1,4 +1,4 @@
-import { Epic, Story, RemoteRef } from '../schema';
+import { Epic, Story, Subtask, RemoteRef } from '../schema';
 
 // ─── Push result ──────────────────────────────────────────────────────────────
 
@@ -48,6 +48,19 @@ export interface RemoteStory {
     url: string;
 }
 
+/**
+ * Normalised remote representation of a subtask fetched from the tracker.
+ * Field names match the canonical fields used by hashSubtask() so that
+ * hashRemoteSubtask() produces a comparable hash for drift detection.
+ */
+export interface RemoteSubtask {
+    key: string;
+    title: string;
+    /** Jira "Done"/ADO "Closed"/"Done" state, normalised to a boolean. */
+    done: boolean;
+    url: string;
+}
+
 // ─── Tracker adapter interface ────────────────────────────────────────────────
 
 /**
@@ -87,6 +100,15 @@ export interface TrackerAdapter {
     pushStory(story: Story, epicRemoteKey?: string): Promise<PushResult>;
 
     /**
+     * Push a subtask as a child work item of its parent story.
+     * Jira: created as a sub-task issue type, linked via the "parent" field.
+     * ADO: created as a Task work item, linked via System.LinkTypes.Hierarchy-Reverse.
+     * @param subtask The subtask to push.
+     * @param storyRemoteKey The tracker-native key of the parent story.
+     */
+    pushSubtask(subtask: Subtask, storyRemoteKey: string): Promise<PushResult>;
+
+    /**
      * Delete an epic from the remote tracker by its remote key.
      * Throws TrackerError if the delete fails (e.g. 403 Forbidden).
      * The caller decides whether to proceed with local deletion after a failure.
@@ -113,6 +135,13 @@ export interface TrackerAdapter {
      * Throws TrackerError if not found (404) or inaccessible.
      */
     fetchStory(remoteKey: string): Promise<RemoteStory>;
+
+    /**
+     * Fetch the current remote state of a subtask by its tracker key.
+     * Used during sync to detect remote-side changes.
+     * Throws TrackerError if not found (404) or inaccessible.
+     */
+    fetchSubtask(remoteKey: string): Promise<RemoteSubtask>;
 }
 
 // ─── Tracker error ────────────────────────────────────────────────────────────

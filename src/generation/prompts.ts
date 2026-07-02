@@ -199,6 +199,14 @@ As a {{story.as_a}}, I want {{story.i_want}}, so that {{story.so_that}}.
 **Labels:** {{join story.labels ", "}}
 {{/if}}
 
+{{#if story.subtasks.length}}
+## Subtasks
+
+{{#each story.subtasks}}
+- [{{#if this.done}}x{{else}} {{/if}}] ({{this.type}}) {{this.title}}
+{{/each}}
+
+{{/if}}
 ## Technology Stack
 
 **Project type:** {{stack.projectType}}
@@ -217,6 +225,17 @@ The following files in the workspace are likely relevant to this story (ranked b
 - {{relativePath}} (score: {{score}})
 {{/each}}
 
+{{/if}}
+{{#if relevantFileContents.length}}
+## Relevant Files — Contents
+
+{{#each relevantFileContents}}
+### {{relativePath}}
+\`\`\`
+{{content}}
+\`\`\`
+
+{{/each}}
 {{/if}}
 {{#if context.length}}
 ## Project Context
@@ -257,12 +276,14 @@ export function buildAgentPromptGenPrompt(
         description?: string;
         acceptance_criteria: string[];
         labels?: string[];
+        subtasks?: Array<{ title: string; type: string; done: boolean }>;
     },
     stack: StackInfo,
     relevantFiles: RelevantFile[],
     context: Array<ContextEntry & { text: string }>,
+    relevantFileContents?: Array<{ relativePath: string; content: string }>,
 ): string {
-    return AGENT_PROMPT_TEMPLATE({ story, stack, relevantFiles, context });
+    return AGENT_PROMPT_TEMPLATE({ story, stack, relevantFiles, context, relevantFileContents });
 }
 
 export function buildStoryRefinePrompt(

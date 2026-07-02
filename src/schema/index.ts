@@ -43,6 +43,17 @@ export const RemoteRefSchema = z.object({
 });
 export type RemoteRef = z.infer<typeof RemoteRefSchema>;
 
+// ─── SUBTASK ──────────────────────────────────────────────────────────────────
+
+export const SubtaskSchema = z.object({
+    id: z.string().regex(/^SUB-\d+$/),
+    title: z.string().min(1),
+    type: z.enum(['task', 'test', 'chore']).default('task'),
+    done: z.boolean().default(false),
+    remote: RemoteRefSchema.optional(),
+});
+export type Subtask = z.infer<typeof SubtaskSchema>;
+
 export const StorySchema = z.object({
     id: z.string().regex(/^STORY-\d+$/),
     type: z.literal('story'),
@@ -57,6 +68,7 @@ export const StorySchema = z.object({
     acceptance_criteria: z.array(z.string()).min(1),
     estimate: z.number().int().positive().optional(),
     labels: z.array(z.string()).default([]),
+    subtasks: z.array(SubtaskSchema).default([]),
     remote: RemoteRefSchema.optional(),
     local_hash: z.string().optional(),
 });
@@ -145,6 +157,7 @@ export const ConfigSchema = z.object({
             story_splitting: RoutingValueSchema,
             agent_prompt: RoutingValueSchema,
             agents_md: RoutingValueSchema,
+            subtask_generation: RoutingValueSchema,
         }).partial(),
         budget: z.object({
             confirm_above_usd: z.number().optional(),
@@ -161,6 +174,12 @@ export const ConfigSchema = z.object({
             epic_issue_type: z.string().default('Epic'),
             /** Jira issue type name for stories. Default: "Story". */
             story_issue_type: z.string().default('Story'),
+            /**
+             * Jira issue type name for subtasks. Default: "Sub-task".
+             * Some projects use "Subtask" (no hyphen) or don't support the
+             * sub-task hierarchy at all — check Project Settings → Issue Types.
+             */
+            subtask_issue_type: z.string().default('Sub-task'),
             /**
              * Field ID for acceptance criteria.
              * Use "description" (default) to append AC to the description block,

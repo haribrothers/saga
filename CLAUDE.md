@@ -84,6 +84,28 @@ Saga is a VS Code extension that turns product briefs and technical designs into
 - `src/agents-md-lock.ts` — `readLock(sagaRoot)` / `writeLock(sagaRoot, hash)` / `sha256(content)` — SHA-256 of last generated content, stored at `.saga/AGENTS.md.lock`; warns if `AGENTS.md` has been hand-edited since last generation
 - `src/webview/agents-md-panel.ts` + `webview-ui/src/AgentsMdPanel.tsx` + `webview-ui/src/vscode-agents-md.ts` — single-instance Webview panel; editable textarea; "new file" / "updating existing" badge; Accept (writes `AGENTS.md` + updates lock) / Regenerate (re-calls LLM with `AbortSignal`) / Discard
 
+**M5 — Polish & Publish** *(in progress — four sub-milestones)*
+
+**M5.1 ✓ Complete — Subtasks + Clickable context + Codebase context in prompts:**
+- **F28 (subtasks):** `SubtaskSchema { id, title, type, done, remote? }` added to `StorySchema` (`subtasks: []` default). `hashStory()` includes `subtasks` (id/title/type/done only) so drift detection catches subtask changes. `nextSubtaskId(story)` in `saga-repo.ts` — scoped per-story, not global. `src/generation/subtasks.ts` — `generateSubtasks(provider, story, signal?)` → `SubtaskResult { items: ProposedSubtask[], usage? }`; new `subtask_generation` routing task. `saga.generateSubtasks` command (Command Palette + story context menu `$(checklist)`) proposes subtasks via LLM, merges with allocated IDs, writes story, offers "Open Story". `StoryPanel.open()` re-fetches from disk (`reload()`) even when reusing an already-open panel, so externally-triggered changes (e.g. subtasks generated from the tree) always show up without a manual close/reopen. Story editor Webview gains a **Subtasks** tab: checklist with done-toggle, inline title/type edit, add/remove, "✨ Generate Subtasks" button (same LLM flow, in-panel via `generateSubtasks`/`generatingSubtasks`/`subtasksGenerated` postMessage types — `StoryPanel` now takes an optional `SecretsManager` for provider resolution). Subtasks render as collapsible child tree nodes under their story (`SubtaskTreeItem`, checkmark/circle icon, done-count badge on the parent). Tracker push: `TrackerAdapter.pushSubtask(subtask, storyRemoteKey)` — Jira creates an issue of type `jira.subtask_issue_type` (config-driven, default `"Sub-task"` — some projects use `"Subtask"` or don't support the sub-task hierarchy at all) linked via `parent`; ADO creates a `Task` work item linked via `System.LinkTypes.Hierarchy-Reverse` and sets `System.State` (Closed/New) from `done`. Subtask push is **not** part of `saga.pushAll` — offered only as a "Push N Subtasks" action on the `saga.pushStory` success notification, and only once the parent story has a remote key. Subtasks render as a `## Subtasks` checklist section in generated agent prompts (`buildAgentPromptGenPrompt`).
+- **Subtask 3-way sync:** subtasks are fully wired into `saga.sync` / `SyncReviewPanel`, not just one-shot push. `TrackerAdapter.fetchSubtask(remoteKey)` → `RemoteSubtask { key, title, done, url }` (no `type` — trackers have no equivalent concept). `hashComparableSubtask({id,title,done})` / `hashRemoteSubtask()` in `hash.ts` are the tracker-comparable hash pair — deliberately narrower than `hashSubtask()` (which includes `type` and is only used for the parent story's local drift hash). `pushSubtask()` in both adapters stores `hashComparableSubtask()` as `last_synced_hash`, not the full `hashSubtask()`, so the classification stays consistent across pushes. `buildSyncPlan()` fetches+classifies every pushed subtask (`SubtaskSyncState`, keyed by `syncId = "${storyId}:${subtaskId}"` since subtask IDs are only unique within a story) alongside epics/stories; conflicts on a subtask also mark the parent story `[conflict ⚠]` in the tree (subtasks have no tree-level badge of their own). `SyncReviewPanel.runApply()` batches subtask resolutions per parent story (one read + one write per story) to avoid clobbering sibling subtask writes, and requires the parent story to already have a remote key before pushing a subtask. Mapping store entries for subtasks use the same `syncId` as their key in `.sync/mappings.json`.
+- **F29 (codebase context in prompts):** `WorkspaceScanner.getRelevantFileContents(story)` — reuses `findRelevantFiles()` scoring, reads up to 150 lines per file, skips lock/binary files (`package-lock.json`, `yarn.lock`, etc. via `EXCLUDED_CONTENT_FILES`). `saga.generateAgentPrompt` shows a `canPickMany` QuickPick (all pre-checked) listing `<path>  · relevance <score> · ~<tokens> tokens` with a running total in the placeholder, before generation; user's selection is passed through as `relevantFileContents` into `generateAgentPrompt()` → rendered in a `## Relevant Files — Contents` fenced-code section of the prompt.
+- **F30 (clickable context files):** `saga.openContextFile` command — `ContextTreeItem.command` opens the clicked entry. Inline entries (`inline-NNN.md`) always open from `.saga/context/`; registered files prefer the original `entry.path`, falling back to the `.saga/context/` copy if the original was moved/deleted, with an info message if neither exists.
+
+**M5.2 — Template editor + OpenRouter:**
+- **F16 (template editor):** `saga.openTemplate` command — QuickPick lists all Handlebars templates; selects copy to `.saga/templates/` if not overridden already, then opens in editor. `saga.resetTemplate` command — deletes override after modal confirm. Generation pipeline checks `.saga/templates/<name>.hbs` before bundled default (existing `loadTemplate()` extended).
+- **F31 (OpenRouter adapter):** `OpenRouterProvider` (`src/llm/openrouter.ts`) — OpenAI-compatible, `https://openrouter.ai/api/v1`, `HTTP-Referer: vscode-saga`. Live `/models` list with pricing metadata shown in Settings Webview model pickers. Key stored in SecretStorage under `openrouter` namespace. `buildProvider()` in `routing.ts` gets `openrouter` case. `ConfigSchema` gains `openrouter: { enabled }` provider entry.
+
+**M5.3 — Export backlog:**
+- **F32 (export):** `saga.exportBacklog` command — QuickPick: Markdown / PDF / Word / Excel → VS Code Save dialog → progress notification → "Open File" action on success. `src/export/` module: `export-markdown.ts`, `export-pdf.ts` (HTML→PDF via lightweight renderer), `export-docx.ts` (using `docx` package), `export-xlsx.ts` (using `exceljs` package). Hierarchy: Epic (H1) → Story (H2) → Subtask (H3) in text formats; flat rows with `EpicID`/`StoryID`/`SubtaskCount` columns in Excel. INVEST badges included in all formats.
+
+**M5.4 — Story splitting + Getting Started + Polish:**
+- **F34 (story splitting):** `saga.splitStory` — right-click story with INVEST "small = warn/fail"; calls LLM proposing 2–3 replacement stories; opens in Generation Review panel; saves via normal Save flow. Adds `story_splitting` routing task (already in schema).
+- **F33 (Getting Started Webview):** opened after `saga.init`; 3-step guided flow: provider → context file → first epic; skippable; calls existing commands under the hood. Single-instance, `data-panel="getting-started"`.
+- **F35 (telemetry opt-in):** anonymous event tracking (command name, provider type, story count — no content); off by default; opt-in via Settings Webview checkbox; documented in README and Privacy notice.
+- **F36 (first-run checks):** after `saga.init`, verify at least one provider is enabled; if not, show notification with "Configure" action that opens the Settings Webview.
+- **Docs + Marketplace assets:** README with animated GIF walkthrough, CHANGELOG, extension icon, Marketplace description, category tags.
+
 ## Commands
 
 ```bash
@@ -150,7 +172,7 @@ Two core interfaces carry extensibility:
 | Jira adapter | `src/tracker/jira.ts` | Jira Cloud REST v3; Basic auth; create/update/delete; ADF descriptions |
 | ADO adapter | `src/tracker/ado.ts` | Azure DevOps REST; PAT auth; JSON Patch create/update/delete |
 | Field mapping | `src/tracker/field-mapping.ts` | Saga domain → Jira ADF fields / ADO patch operations |
-| Hash utility | `src/tracker/hash.ts` | `hashEpic` / `hashStory` / `hashRemoteEpic` / `hashRemoteStory` — SHA-256 for drift + 3-way sync |
+| Hash utility | `src/tracker/hash.ts` | `hashEpic` / `hashStory` / `hashSubtask` (local, includes `type`) / `hashComparableSubtask` + `hashRemoteSubtask` (tracker-comparable, no `type`) / `hashRemoteEpic` / `hashRemoteStory` — SHA-256 for drift + 3-way sync |
 | Sync store | `src/tracker/sync-store.ts` | `.saga/.sync/mappings.json` read/write |
 | Conflicts store | `src/tracker/conflicts-store.ts` | `.saga/.sync/conflicts.json` — transient sidecar for `[conflict ⚠]` tree badges |
 | Sync engine | `src/tracker/sync-engine.ts` | `buildSyncPlan()` — fetch + classify all pushed items; `countByKind()` |
@@ -167,9 +189,10 @@ Two core interfaces carry extensibility:
 | Anthropic adapter | `src/llm/anthropic.ts` | BYOK; Anthropic SDK; exact token counts; key via `() => Promise<string\|undefined>` callback; `AbortSignal` |
 | Gemini adapter | `src/llm/gemini.ts` | BYOK; Google Generative AI SDK; exact token counts; key callback; `AbortSignal` |
 | OpenAI BYOK adapter | `src/llm/openai-byok.ts` | BYOK; OpenAI SDK; live `/models` list; exact token counts; key callback |
-| Workspace scanner | `src/context/workspace-scanner.ts` | Heuristic file relevance scoring; stack detection (`package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod`); directory layout; shared by F12+F13 |
-| Agent prompt generator | `src/generation/agent-prompt.ts` | `generateAgentPrompt(provider, story, stack, relevantFiles, context, signal?)` → `AgentPromptResult { content, usage? }` |
+| Workspace scanner | `src/context/workspace-scanner.ts` | Heuristic file relevance scoring; `getRelevantFileContents(story)` (M5.1/F29) — top-scored files with up to 150 lines each, lock/binary files excluded; stack detection (`package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod`); directory layout; shared by F12+F13+F29 |
+| Agent prompt generator | `src/generation/agent-prompt.ts` | `generateAgentPrompt(provider, story, stack, relevantFiles, context, signal?, relevantFileContents?)` → `AgentPromptResult { content, usage? }` |
 | AGENTS.md generator | `src/generation/agents-md.ts` | `generateAgentsMd(provider, stack, layout, context, existingAgentsMd?, signal?)` → `AgentsMdResult { content, usage? }` |
+| *(M5.1)* Subtask generator | `src/generation/subtasks.ts` | `generateSubtasks(provider, story, signal?)` → `SubtaskResult { items: ProposedSubtask[], usage? }` — proposals only, caller allocates IDs via `nextSubtaskId()` |
 | AGENTS.md lock | `src/agents-md-lock.ts` | `readLock` / `writeLock` / `sha256` — SHA-256 of last generated content at `.saga/AGENTS.md.lock`; detects hand-edits |
 | Agent prompt panel | `src/webview/agent-prompt-panel.ts` | Per-story panels (Map keyed by story ID); opens in `ViewColumn.Beside`; editable textarea; token count; Copy + Save on explicit user action; `data-panel="agent-prompt"` |
 | AGENTS.md panel | `src/webview/agents-md-panel.ts` | Single-instance; editable textarea; "new file"/"updating existing" badge; Accept/Regenerate/Discard; `data-panel="agents-md"` |
@@ -177,6 +200,11 @@ Two core interfaces carry extensibility:
 | AGENTS.md bridge | `webview-ui/src/vscode-agents-md.ts` | Typed postMessage: `ready → load`; `accept\|regenerate\|discard → extension`; `acceptAck` on success |
 | Agent prompt React | `webview-ui/src/AgentPromptPanel.tsx` | Editable textarea; token display in header; Copy to Clipboard + Save (dirty indicator) |
 | AGENTS.md React | `webview-ui/src/AgentsMdPanel.tsx` | Editable textarea; new/updating badge; Regenerate/Discard/Accept footer |
+| *(M5.1)* Context open command | `saga.openContextFile` in `extension.ts` | Opens registered file or `.saga/context/inline-NNN.md` in VS Code editor |
+| *(M5.2 — planned)* OpenRouter adapter | `src/llm/openrouter.ts` | BYOK; OpenAI-compatible; `HTTP-Referer: vscode-saga`; live `/models` with pricing metadata; key callback; `AbortSignal` |
+| *(M5.2 — planned)* Template manager | `src/template-manager.ts` | `listTemplates()`, `openTemplate(name)`, `resetTemplate(name)` — copies bundled `.hbs` to `.saga/templates/` |
+| *(M5.3 — planned)* Export module | `src/export/` | `export-markdown.ts`, `export-pdf.ts`, `export-docx.ts`, `export-xlsx.ts` — assembled from `listEpics`/`listStories` |
+| *(M5.4 — planned)* Getting Started panel | `src/webview/getting-started-panel.ts` | Single-instance; 3-step onboarding; `data-panel="getting-started"` |
 
 ### `.saga/` folder (source of truth)
 ```
@@ -184,9 +212,14 @@ Two core interfaces carry extensibility:
 ├── config.yaml           # non-secret: provider routing, model IDs, tracker defaults
 ├── context/              # registered files + inline-NNN.md + context-registry.yaml
 ├── epics/                # EPIC-NNN.yaml
-├── stories/              # STORY-NNN.yaml
+├── stories/              # STORY-NNN.yaml (subtasks embedded as array field, M5.1)
 ├── prompts/              # generated agent prompts: STORY-NNN.prompt.md (M4.2)
-├── templates/            # user-overridable Handlebars templates
+├── templates/            # user-overridable Handlebars templates (M5.2)
+│   ├── epic-generation.hbs
+│   ├── story-generation.hbs
+│   ├── story-refine.hbs
+│   ├── agent-prompt.hbs
+│   └── agents-md.hbs
 ├── AGENTS.md.lock        # SHA-256 of last generated AGENTS.md — detects hand-edits (M4.3)
 └── .sync/                # gitignored: remote-ID mappings and last-synced snapshots
     ├── mappings.json         # sagaId → { jira|ado: { key, url, last_synced_hash, last_synced_at } }
@@ -237,6 +270,14 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - **AGENTS.md lock**: `writeLock` stores a SHA-256 of the exact string written to `AGENTS.md`. On re-generation, if `AGENTS.md` exists but its current hash differs from the lock, the user must confirm before overwriting. If no lock file exists, treat `AGENTS.md` as potentially hand-written and always warn.
 - **Workspace scanner**: never include `node_modules`, `.git`, `dist`, `build`, `out`, `.saga`, `.vscode` in any file listing. Respect a 200-file cap on candidate results to avoid freezing on large repos.
 - **Agent prompt codebase context**: v1 uses heuristic scoring only — filename/path string overlap with story title + labels, no embeddings. Score 0–1; include files with score > 0.1, capped at top 20. Embeddings are P2.
+- **Subtask ID generation**: subtask IDs are `SUB-NNN` scoped within a story (not globally unique). When creating new subtasks, find the max existing `id` within the story's `subtasks[]` array and increment.
+- **Subtask hash inclusion**: `hashStory()` must include the `subtasks` array in the canonical field set so that adding/removing/completing a subtask counts as a local change for drift detection.
+- **OpenRouter key pattern**: `OpenRouterProvider` uses the same `() => Promise<string | undefined>` key-getter callback as all other BYOK adapters. Key stored in SecretStorage under key name `saga.openrouter.apiKey`. Always send `HTTP-Referer: vscode-saga` and `X-Title: Saga` headers.
+- **Template override resolution**: `loadTemplate(name, sagaRoot?)` checks `.saga/templates/<name>.hbs` first; falls back to the bundled default in `src/generation/templates/<name>.hbs`. If `sagaRoot` is undefined (no workspace), always use bundled default.
+- **Export bundle size**: `docx` and `exceljs` are loaded via dynamic `import()` inside the export command handler to avoid adding ~2 MB to the extension's synchronous activation path.
+- **Subtask tracker push**: subtasks should be pushed only when the parent story has a `remote.key`. Subtask push is not included in `saga.pushAll` v1 — only explicitly via the story push flow, a dedicated "push subtasks" action shown in the story push success notification, or a resolution in Sync Review.
+- **Subtask sync hash**: never use `hashSubtask()` (which includes `type`) when comparing against remote state — trackers don't model Saga's task/test/chore type. Always use `hashComparableSubtask()` / `hashRemoteSubtask()` for anything that touches `RemoteSubtask` or `last_synced_hash` on a pushed subtask.
+- **Context file open**: `saga.openContextFile` must handle the case where the original registered path no longer exists (file moved/deleted); fall back to opening the `.saga/context/<filename>` copy if present, or show an info message if neither exists.
 
 ## Key dependencies
 
@@ -251,3 +292,7 @@ npm run package          # both, production mode (minified, no sourcemaps)
 - `@anthropic-ai/sdk` — Anthropic BYOK adapter; exact token counts from `usage` in API response
 - `@google/genai` — Gemini BYOK adapter; exact token counts from `usageMetadata`; ESM-only, loaded via `Function('return import(...)')()` to avoid esbuild rewrite
 - `openai` — OpenAI BYOK adapter; live `/models` list; exact token counts from `usage`
+
+**To be installed for M5:**
+- `docx` — Word `.docx` export (F32/M5.3); dynamically imported
+- `exceljs` — Excel `.xlsx` export (F32/M5.3); dynamically imported

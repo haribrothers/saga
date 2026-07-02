@@ -123,6 +123,17 @@
         "icon": "$(file-code)"
       },
       {
+        "command": "saga.generateSubtasks",
+        "title": "Saga: Generate Subtasks",
+        "category": "Saga",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "saga.openContextFile",
+        "title": "Saga: Open Context File",
+        "category": "Saga"
+      },
+      {
         "command": "saga.testGeneration",
         "title": "Saga: Test Generation",
         "category": "Saga"
@@ -233,9 +244,14 @@
           "group": "inline"
         },
         {
-          "command": "saga.deleteStory",
+          "command": "saga.generateSubtasks",
           "when": "viewItem == sagaStory",
           "group": "saga@1"
+        },
+        {
+          "command": "saga.deleteStory",
+          "when": "viewItem == sagaStory",
+          "group": "saga@2"
         }
       ],
       "explorer/context": [

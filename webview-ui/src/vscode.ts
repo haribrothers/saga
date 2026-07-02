@@ -14,12 +14,23 @@ export default vscode;
 export type ExtensionToWebview =
     | { type: 'load'; story: StoryData; epics: EpicSummary[] }
     | { type: 'investResult'; invest: InvestData }
-    | { type: 'saveAck' };
+    | { type: 'saveAck' }
+    | { type: 'generatingSubtasks' }
+    | { type: 'subtasksGenerated'; subtasks: SubtaskData[] };
 
 export type WebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; story: StoryData }
-    | { type: 'validate' };
+    | { type: 'validate' }
+    | { type: 'generateSubtasks' };
+
+export interface SubtaskData {
+    id: string;
+    title: string;
+    type: 'task' | 'test' | 'chore';
+    done: boolean;
+    remote?: unknown;
+}
 
 export interface StoryData {
     id: string;
@@ -33,6 +44,7 @@ export interface StoryData {
     acceptance_criteria: string[];
     estimate?: number;
     labels: string[];
+    subtasks: SubtaskData[];
     invest?: InvestData;
     // Passed through opaquely so save never strips sync state
     remote?: unknown;

@@ -51,6 +51,7 @@ export interface SettingsConfigData {
             email: string;
             epic_issue_type: string;
             story_issue_type: string;
+            subtask_issue_type: string;
             ac_field_id: string;
             epic_link_style: 'parent' | 'customfield_10014';
             story_points_field_id: string; // empty string = omit from push

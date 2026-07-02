@@ -14,7 +14,8 @@ export type RoutingTask =
     | 'invest_validation'
     | 'story_splitting'
     | 'agent_prompt'
-    | 'agents_md';
+    | 'agents_md'
+    | 'subtask_generation';
 
 export interface ResolvedProvider {
     provider: LLMProvider;

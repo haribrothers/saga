@@ -80,9 +80,12 @@ Saga addresses all five by sitting where the code is, treating plans as files, a
 │   └── STORY-002-saved-cards.yaml
 ├── prompts/                 # generated agent prompts (git-tracked): STORY-NNN.prompt.md
 │   └── STORY-001.prompt.md
-├── templates/               # user-overridable generation & prompt templates
-│   ├── story.hbs
-│   └── agent-prompt.hbs
+├── templates/               # user-overridable generation & prompt templates (F16/M5.2)
+│   ├── epic-generation.hbs
+│   ├── story-generation.hbs
+│   ├── story-refine.hbs
+│   ├── agent-prompt.hbs
+│   └── agents-md.hbs
 ├── AGENTS.md.lock           # SHA-256 of last generated AGENTS.md — detects hand-edits (M4.3)
 └── .sync/                   # sync state: remote IDs, hashes, last-synced snapshots
     └── mappings.json
@@ -120,6 +123,15 @@ acceptance_criteria:               # Gherkin
       And a confirmation email is sent
 estimate: 5
 labels: [checkout, payments]
+subtasks:                          # optional checklist of typed work items (F28/M5.1)
+  - id: SUB-001
+    title: Add guest session cookie handling
+    type: technical                # technical | test | design | documentation | other
+    done: false
+  - id: SUB-002
+    title: "Scenario: guest checkout confirmation email"
+    type: test
+    done: false
 remote:                            # populated after sync
   provider: jira
   key: PROJ-142
@@ -155,7 +167,7 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F15b | Epic-first push enforcement — block `saga.pushStory` if the parent epic has not been pushed yet; prompt user to push the epic first | P0 |
 | F15c | Push stories after epic — after `saga.pushEpic` succeeds, offer "Push Stories" in the success notification to push all stories under that epic | P0 |
 | F15d | Tracker-aware delete — when deleting a pushed epic or story, offer to delete it from the tracker first; if the remote delete fails (e.g. permissions), ask "Delete locally anyway?" rather than silently blocking | P0 |
-| F16 | Template customization (story format, prompt format) via `templates/` | P1 |
+| F16 | Template customization — edit Handlebars generation templates and agent prompt templates in-editor via `saga.openTemplate`; `.saga/templates/` overrides are git-tracked; live reload on next generation | P0 |
 | F17 | Story splitting assistant (acts on INVEST "small" warnings) | P1 |
 | F18 | Dependency/links between stories and epics, mapped to tracker links | P1 |
 | F19 | Cost/usage estimate before a generation run (token preview) | P2 |
@@ -167,6 +179,15 @@ Prioritized: **P0** = v1 must-ship, **P1** = fast-follow, **P2** = later.
 | F25 | Delete epics, stories, and scoped/full cleanup — right-click delete with confirmation; clear all stories under an epic; clear all epics (and their stories); `Saga: Clean Up` removes everything | P0 |
 | F26 | Token usage visibility — input/output token counts logged after every generation run; shown in Generation Review panel header and Saga Output Channel | P0 |
 | F27 | Generation cancellation — cancel any in-progress generation via the VS Code progress notification dismiss button; stops the LLM call mid-flight and shows a "cancelled" notification | P0 |
+| F28 | Subtasks on stories — each story can have 1-N typed subtasks (checklist items, technical tasks, test cases); subtasks included in agent prompts and tracker push (Jira sub-tasks / ADO child tasks) | P0 |
+| F29 | Codebase context in agent prompts — `WorkspaceScanner` detects existing source files; relevant files auto-scored and included in agent prompt as `## Relevant files` with content snippets; user can review/trim in QuickPick before generation | P0 |
+| F30 | Clickable context files — clicking a file in the Context Files tree opens it in the VS Code editor; clicking an inline context entry opens the `.saga/context/inline-NNN.md` file for editing | P0 |
+| F31 | OpenRouter provider adapter — `OpenRouterProvider` class wrapping the OpenRouter REST API (OpenAI-compatible, `https://openrouter.ai/api/v1`); live model list from `/models`; key stored in SecretStorage; shown in Settings Webview alongside other BYOK providers; cost metadata from OpenRouter's model listing shown in model picker | P0 |
+| F32 | Export backlog — `saga.exportBacklog` command exports all epics + stories + subtasks to Markdown, PDF, Word (`.docx`), or Excel (`.xlsx`) from a format QuickPick; preserves hierarchy (epic → stories → subtasks); INVEST badges shown in Markdown/PDF/Word; each format assembled without heavy runtime deps where possible | P0 |
+| F33 | Getting Started Webview — guided onboarding panel opened after `saga.init`; covers provider setup, first context file, first epic generation; skippable at any step; links to existing commands | P1 |
+| F34 | Story splitting assistant — right-click a story with INVEST "small = warn/fail" to propose 2–3 smaller replacement stories; preview in Generation Review panel; saves via normal review flow | P1 |
+| F35 | Telemetry (opt-in) — anonymous usage events (command invocations, provider type, story count) sent only when the user explicitly opts in via settings; off by default; documented in README | P1 |
+| F36 | Onboarding "first run" checks — on `saga.init`, verify that at least one provider is enabled and warn if none are; surface direct links to configure in the Settings Webview | P1 |
 
 ### UI surface notes
 - Every command is reachable from **both** the Command Palette (`Ctrl/Cmd+Shift+P`) and the Saga sidebar UI. Neither is the exclusive path.
@@ -496,6 +517,11 @@ All commands are prefixed `Saga:` and grouped under the `Saga` category.
 | `Saga: Sync` | Palette + sidebar `↻` button | M3+; opens sync review Webview |
 | `Saga: Open Settings` | Palette + sidebar `⚙` button | Opens Settings Webview (F23) |
 | `Saga: Test Generation` | Palette only (dev/debug) | M0 smoke test; removed pre-publish |
+| `Saga: Generate Subtasks` | Palette + story tree right-click | F28 (M5.1); proposes typed subtasks for the selected story via LLM |
+| `Saga: Open Template` | Palette | F16 (M5.2); QuickPick template list → opens `.saga/templates/<name>.hbs` for editing |
+| `Saga: Reset Template to Default` | Explorer right-click on `.hbs` file | F16 (M5.2); deletes user override from `.saga/templates/` after modal confirm |
+| `Saga: Export Backlog` | Palette | F32 (M5.3); QuickPick format → Save dialog → writes Markdown / PDF / Word / Excel |
+| `Saga: Open Context File` | Context tree click | F30 (M5.1); opens context file or inline-NNN.md in the editor |
 
 ---
 
@@ -708,6 +734,129 @@ Command **Saga: Generate AGENTS.md** (Command Palette + Epics & Stories view too
 
 Written to `AGENTS.md` at the workspace root (not inside `.saga/`). The lock file at `.saga/AGENTS.md.lock` stores the SHA-256 so Saga can detect subsequent hand-edits before the next generation run.
 
+### 8.7 Subtasks on stories (F28)
+
+Every story can carry an ordered list of **subtasks** — small, typed work items that break the story into developer-sized chunks without creating separate Saga stories.
+
+**Schema addition to `StorySchema`:**
+```yaml
+subtasks:
+  - id: SUB-001
+    title: Write migration for users table
+    type: technical          # technical | test | design | documentation | other
+    done: false
+  - id: SUB-002
+    title: "Scenario: User can log in after migration"
+    type: test
+    done: false
+```
+
+**UX:**
+- Story editor Webview gains a **Subtasks** tab alongside Form / YAML tabs — a checklist with `+` to add and `✕` to remove items.
+- The Generation Review Webview can optionally generate subtasks inline when the user checks **"Generate subtasks"** before saving a story.
+- `saga.generateSubtasks` command (right-click on story) — calls the LLM to propose typed subtasks based on story AC and description; opens them in the story editor for review.
+- Subtasks are shown as child nodes in the Epics & Stories tree (collapsible; checkbox state shown in icon).
+
+**Agent prompt integration (F29 prerequisite):**
+- `generateAgentPrompt` includes all subtasks as a `## Subtasks` section so the coding agent has a ready-to-tick checklist.
+
+**Tracker push:**
+- Jira: subtasks pushed as Jira sub-tasks linked to the parent story issue via the `parent` field.
+- ADO: subtasks pushed as ADO Tasks linked via `System.LinkTypes.Hierarchy-Reverse` (child of story work item).
+- Subtask `done` state synced with tracker `Closed`/`Done` status on pull.
+
+### 8.8 Codebase context in agent prompts (F29)
+
+When `saga.generateAgentPrompt` runs, `WorkspaceScanner` now **reads file content snippets** for the top-scored files (score > 0.1, capped at 20):
+
+- For each included file, up to **150 lines** of content are included in the prompt under `## Relevant files` as fenced code blocks (with relative path as caption).
+- The QuickPick multi-select shows each candidate file with its heuristic score (e.g. `auth.ts  ·  relevance 0.82`) so the user can deselect irrelevant files.
+- Files already in the context registry (product brief, design, standards) are excluded from the codebase scan to avoid duplication.
+- Total prompt token count is estimated and shown in the QuickPick footer before the LLM call fires: *"Estimated prompt: ~4,200 tokens · 12 files selected"*.
+
+**Content filtering:**
+- Binary files (images, compiled assets) skipped.
+- Files > 500 lines: include only the first 150 lines with a `... (truncated)` note.
+- Lock files (`package-lock.json`, `Cargo.lock`, `poetry.lock`) excluded unconditionally.
+
+### 8.9 Clickable context files (F30)
+
+Context files listed in the **Context Files tree** become navigable:
+
+- Clicking a **file context entry** (`.md`, `.txt`, `.pdf`, `.docx`, source file) opens it in the VS Code editor using `vscode.workspace.openTextDocument` + `vscode.window.showTextDocument`.
+- Clicking an **inline context entry** (stored as `.saga/context/inline-NNN.md`) opens that file in the editor so the user can update it in place. After saving, Saga detects the change via the existing file watcher and the context registry updates automatically.
+- The `ContextTreeItem` gains `command: { command: 'saga.openContextFile', arguments: [path] }` — a lightweight new command that resolves the path from the context entry and opens it.
+
+### 8.10 OpenRouter provider adapter (F31)
+
+**`OpenRouterProvider`** (`src/llm/openrouter.ts`) — new BYOK adapter using the OpenRouter REST API:
+
+- Base URL: `https://openrouter.ai/api/v1` (OpenAI-compatible).
+- Auth: `Authorization: Bearer <key>` from SecretStorage; `HTTP-Referer` header set to `vscode-saga` per OpenRouter's attribution policy.
+- Live model list from `GET /models` — returns model IDs with pricing metadata (`pricing.prompt`, `pricing.completion` per token). Model picker in Settings Webview shows price per 1M tokens alongside each model ID.
+- Exact token counts from the `usage` field in the chat completions response.
+- `AbortSignal` support via the underlying `fetch` call (same pattern as `LocalLmProvider`).
+
+**Settings Webview:**
+- OpenRouter appears as a fifth BYOK provider in the AI Provider section.
+- **Add Key / Update Key** button stores the key in SecretStorage under the `openrouter` namespace.
+- **Test** button calls `GET /models` to verify the key is valid.
+- Model picker populates from the live `/models` response; each option shows `<model-id>  ·  $X.XX/1M in  ·  $X.XX/1M out`.
+
+**`buildProvider()` in `src/llm/routing.ts`:** adds `openrouter` case, same key-getter pattern as the other BYOK adapters.
+
+**Config schema addition:**
+```yaml
+ai:
+  providers:
+    openrouter:
+      enabled: false    # BYOK; key in SecretStorage
+```
+
+### 8.11 Template editor (F16)
+
+**`saga.openTemplate`** command — lets users view and edit the Handlebars generation templates that control how prompts and outputs are formatted.
+
+**Flow:**
+1. Command Palette → `Saga: Open Template` → QuickPick lists available templates:
+   - `epic-generation.hbs` — system prompt for epic generation
+   - `story-generation.hbs` — system prompt for story generation
+   - `story-refine.hbs` — refinement follow-up prompt
+   - `agent-prompt.hbs` — agent prompt output template
+   - `agents-md.hbs` — AGENTS.md generation prompt
+2. Selecting a template opens it in the VS Code editor.
+   - If a user override exists in `.saga/templates/`, that file is opened.
+   - If not, the bundled default is **copied** to `.saga/templates/<name>.hbs` first, then opened — so the user is always editing a `.saga/`-tracked copy.
+3. On the next generation run, Saga checks `.saga/templates/` for an override and uses it if present; otherwise falls back to the bundled default (same logic as the current `loadTemplate()` in `prompts.ts`).
+
+**Reset to default:** right-click a template file in the Explorer → `Saga: Reset Template to Default` command deletes the user override from `.saga/templates/` (after modal confirm), restoring the bundled behaviour.
+
+**No live-preview in v1** — the Handlebars context is complex and a preview panel is P2. The user edits the template, runs generation, and sees the result in the normal Generation Review Webview.
+
+### 8.12 Export backlog (F32)
+
+**`saga.exportBacklog`** command — exports the full backlog (all epics, stories, subtasks) in a chosen format.
+
+**Flow:**
+1. Command Palette → `Saga: Export Backlog` → QuickPick: **Markdown / PDF / Word (.docx) / Excel (.xlsx)**
+2. VS Code Save dialog to pick destination file.
+3. Progress notification while writing.
+4. On success: "Open File" action in the notification.
+
+**Format details:**
+
+| Format | Hierarchy | INVEST badges | Notes |
+|---|---|---|---|
+| **Markdown** | `# Epic` → `## Story` → `### Subtask` | ✓ as emoji badge row | Single `.md` file; includes all YAML fields in a readable layout; Gherkin in fenced blocks |
+| **PDF** | Same hierarchy as Markdown | ✓ coloured badge row | Generated from the Markdown via `markdown-pdf` or a lightweight HTML→PDF renderer; no heavy LaTeX dependency |
+| **Word (.docx)** | Heading styles: Epic = Heading 1, Story = Heading 2, Subtask = Heading 3 | ✓ as inline text badges | Built with `docx` npm package; table of contents bookmark per epic |
+| **Excel (.xlsx)** | Flat table: one row per story, sub-rows for subtasks | ✓ as cell values | Columns: `Epic ID`, `Epic Title`, `Story ID`, `Story Title`, `As a / I want / So that`, `Estimate`, `Labels`, `Status`, `Acceptance Criteria`, `Subtasks count`; built with `exceljs` |
+
+**Constraints:**
+- Export is read-only — it never modifies `.saga/` files.
+- Export includes only the epics/stories/subtasks present locally in `.saga/`; it does not trigger a sync before exporting.
+- PDF and Word exports depend on packages bundled with the extension; no external runtime dependencies.
+
 ---
 
 ## 9. AI provider layer, auth & cost strategy
@@ -899,7 +1048,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 | **M2.1 — Push UX** | Epic-first enforcement (F15b): block story push if parent epic not yet pushed. Post-epic push offer (F15c): "Push Stories" action after epic push. Tracker-aware delete (F15d): offer remote delete when deleting a pushed item; graceful fallback if remote delete fails. Bulk push (F15): `saga.pushAll` command + sidebar button — push all unpushed/drifted epics then stories in order, progress per item. `deleteEpic`/`deleteStory` on `TrackerAdapter`. | Push flow is safe, guided, and efficient |
 | **M3 — Sync** | Pull + two-way sync + 3-way conflict resolution (F11), status decorations (F14) | True bi-directional sync with `.saga/` as source of truth |
 | **M4 — Code loop** | **M4.1** BYOK adapters (F7 complete): `AnthropicProvider`, `GeminiProvider`, `OpenAIByokProvider` wired into routing + Settings UI. **M4.2** Agent prompt generation (F12): `saga.generateAgentPrompt` command, workspace file relevance scorer, Agent Prompt Webview panel (preset picker, Copy + Save). **M4.3** AGENTS.md generation (F13): `saga.generateAgentsMd` command, stack detection, AGENTS.md.lock diff guard, AGENTS.md Webview panel (diff view, Accept/Regenerate/Discard). | Planning ↔ code loop closed; all three provider classes fully wired |
-| **M5 — Polish & publish** | Templates (F16), bulk ops (F15), splitting assistant (F17), docs, telemetry opt-in | Marketplace release |
+| **M5 — Polish & publish** | **M5.1** Subtasks (F28) + codebase context in prompts (F29) + clickable context files (F30). **M5.2** Template editor (F16) + OpenRouter adapter (F31). **M5.3** Export backlog (F32). **M5.4** Story splitting assistant (F34) + Getting Started Webview (F33) + telemetry opt-in (F35) + first-run checks (F36). Docs, README, Changelog, Marketplace assets. | Marketplace release |
 
 ---
 
@@ -912,6 +1061,9 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 5. **Sync conflict UX** — 3-way diff is the riskiest UI; budget time here.
 6. **Rate limits** — Copilot via the LM API is subject to GitHub's limits, which Saga can't control; surface clear errors and allow provider fallback.
 7. **Codebase context relevance** — naive file globbing produces noisy prompts; embeddings improve it but add a dependency. Start heuristic, add embeddings in P2.
+8. **Subtask tracker mapping** — Jira sub-tasks require the parent story to be pushed first; ADO Tasks require parent story work item ID. The existing epic-first enforcement pattern (F15b) extends cleanly to subtasks, but the ADO sub-task link type (`System.LinkTypes.Hierarchy-Reverse`) must be verified per workspace configuration.
+9. **Export format deps** — `docx` and `exceljs` add ~1–2 MB to the extension bundle. Consider lazy loading via dynamic `import()` on first Export use to keep extension activation time fast.
+10. **OpenRouter attribution** — OpenRouter requires a valid `HTTP-Referer` or `X-Title` header for model access accounting. Use `vscode-saga` as the fixed referer value; document this in the Settings Webview.
 
 ---
 
@@ -919,5 +1071,7 @@ Two interfaces carry the extensibility: `LLMProvider` (provider-agnostic AI) and
 
 - From a product brief, generate a reviewed epic with ≥5 INVEST-passing stories (each with valid Gherkin) in under 5 minutes of human time.
 - Push and then bi-directionally sync those stories with Jira Cloud **and** ADO without data loss across a local-edit + remote-edit conflict.
-- Generate an agent prompt that a coding agent can act on without the user hand-editing context.
+- Generate an agent prompt (with codebase context auto-attached) that a coding agent can act on without the user hand-editing context.
 - Run the entire flow on a Copilot subscription with **zero** API keys configured.
+- Export a full backlog (epics + stories + subtasks) to Markdown, PDF, Word, and Excel.
+- OpenRouter models selectable from the Settings Webview and usable for all generation tasks without restarting the extension.

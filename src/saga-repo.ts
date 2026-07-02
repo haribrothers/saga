@@ -148,6 +148,18 @@ export async function nextStoryId(sagaRoot: vscode.Uri): Promise<string> {
     return `STORY-${String(next).padStart(3, '0')}`;
 }
 
+/**
+ * Next subtask ID, scoped within a single story (not globally unique).
+ * Finds the max existing numeric ID within story.subtasks[] and increments.
+ */
+export function nextSubtaskId(story: Story): string {
+    const nums = story.subtasks
+        .map((s) => parseInt(s.id.replace(/^SUB-(\d+)$/, '$1'), 10))
+        .filter((n) => !isNaN(n));
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `SUB-${String(next).padStart(3, '0')}`;
+}
+
 // ─── Context registry ─────────────────────────────────────────────────────────
 
 export async function readContextRegistry(sagaRoot: vscode.Uri): Promise<ContextRegistry> {

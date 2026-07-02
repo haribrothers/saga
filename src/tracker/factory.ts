@@ -39,6 +39,7 @@ export async function buildTrackerAdapter(
                 email: jiraCfg.email,
                 epicIssueType: jiraCfg.epic_issue_type,
                 storyIssueType: jiraCfg.story_issue_type,
+                subtaskIssueType: jiraCfg.subtask_issue_type,
                 acFieldId: jiraCfg.ac_field_id,
                 epicLinkStyle: jiraCfg.epic_link_style,
                 storyPointsFieldId: jiraCfg.story_points_field_id,

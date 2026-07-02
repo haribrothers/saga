@@ -1,14 +1,15 @@
 import * as vscode from 'vscode';
-import { Epic, Story, StorySchema, EpicSchema } from '../schema';
-import { TrackerAdapter, RemoteEpic, RemoteStory } from '../tracker/adapter';
+import { Epic, Story, Subtask, StorySchema, EpicSchema } from '../schema';
+import { TrackerAdapter, RemoteEpic, RemoteStory, RemoteSubtask } from '../tracker/adapter';
 import {
     SyncPlan,
     EpicSyncState,
     StorySyncState,
+    SubtaskSyncState,
 } from '../tracker/sync-engine';
-import { hashEpic, hashStory, hashRemoteEpic, hashRemoteStory } from '../tracker/hash';
+import { hashEpic, hashStory, hashComparableSubtask, hashRemoteEpic, hashRemoteStory } from '../tracker/hash';
 import { setMapping } from '../tracker/sync-store';
-import { writeEpic, writeStory, getSagaRoot } from '../saga-repo';
+import { writeEpic, writeStory, readStory, getSagaRoot } from '../saga-repo';
 import { clearConflicts } from '../tracker/conflicts-store';
 import { getWebviewHtml } from './html';
 // ─── Message contract (mirrored in vscode-sync-review.ts on the webview side) ─
@@ -35,6 +36,14 @@ export interface RemoteStoryView {
     estimate?: number; labels: string[]; url: string;
 }
 
+export interface LocalSubtaskView {
+    id: string; storyId: string; title: string; type: string; done: boolean;
+}
+
+export interface RemoteSubtaskView {
+    key: string; title: string; done: boolean; url: string;
+}
+
 export type EpicSyncStateView =
     | { kind: 'in-sync'; local: LocalEpicView }
     | { kind: 'local-only'; local: LocalEpicView }
@@ -47,11 +56,19 @@ export type StorySyncStateView =
     | { kind: 'remote-only'; local: LocalStoryView; remote: RemoteStoryView }
     | { kind: 'conflict'; local: LocalStoryView; remote: RemoteStoryView };
 
+export type SubtaskSyncStateView =
+    | { kind: 'in-sync'; syncId: string; local: LocalSubtaskView }
+    | { kind: 'local-only'; syncId: string; local: LocalSubtaskView }
+    | { kind: 'remote-only'; syncId: string; local: LocalSubtaskView; remote: RemoteSubtaskView }
+    | { kind: 'conflict'; syncId: string; local: LocalSubtaskView; remote: RemoteSubtaskView };
+
 export interface SyncPlanView {
     epics: EpicSyncStateView[];
     stories: StorySyncStateView[];
+    subtasks: SubtaskSyncStateView[];
     unpushedEpicIds: string[];
     unpushedStoryIds: string[];
+    unpushedSubtaskIds: string[];
     fetchErrors: Array<{ sagaId: string; error: string }>;
 }
 
@@ -62,13 +79,17 @@ export type SyncExtensionToWebview =
 
 export type SyncWebviewToExtension =
     | { type: 'ready' }
-    | { type: 'apply'; epicResolutions: EpicResolutionView[]; storyResolutions: StoryResolutionView[] }
+    | { type: 'apply'; epicResolutions: EpicResolutionView[]; storyResolutions: StoryResolutionView[]; subtaskResolutions: SubtaskResolutionView[] }
     | { type: 'cancel' };
 
 export type EpicResolutionView =
     | { kind: 'push' | 'pull' | 'keep-local' | 'take-remote' | 'skip'; sagaId: string };
 
 export type StoryResolutionView =
+    | { kind: 'push' | 'pull' | 'keep-local' | 'take-remote' | 'skip'; sagaId: string };
+
+/** sagaId here is the syncId (`${storyId}:${subtaskId}`). */
+export type SubtaskResolutionView =
     | { kind: 'push' | 'pull' | 'keep-local' | 'take-remote' | 'skip'; sagaId: string };
 
 // ─── Panel options ────────────────────────────────────────────────────────────
@@ -80,6 +101,7 @@ export interface SyncReviewOptions {
     storiesMap: Map<string, Story>;   // sagaId → Story, for apply
     remoteEpicsMap: Map<string, RemoteEpic>;    // sagaId → RemoteEpic
     remoteStoriesMap: Map<string, RemoteStory>; // sagaId → RemoteStory
+    remoteSubtasksMap: Map<string, RemoteSubtask>; // syncId (`${storyId}:${subtaskId}`) → RemoteSubtask
     workspaceRoot: vscode.Uri;
     extensionUri: vscode.Uri;
 }
@@ -138,14 +160,14 @@ export class SyncReviewPanel {
             return;
         }
         if (msg.type === 'apply') {
-            await this.runApply({ epics: msg.epicResolutions, stories: msg.storyResolutions });
+            await this.runApply({ epics: msg.epicResolutions, stories: msg.storyResolutions, subtasks: msg.subtaskResolutions });
         }
     }
 
     // ─── Apply ────────────────────────────────────────────────────────────────
 
-    private async runApply(resolutions: { epics: EpicResolutionView[]; stories: StoryResolutionView[] }): Promise<void> {
-        const { adapter, workspaceRoot, epicsMap, storiesMap, remoteEpicsMap, remoteStoriesMap } = this._opts;
+    private async runApply(resolutions: { epics: EpicResolutionView[]; stories: StoryResolutionView[]; subtasks: SubtaskResolutionView[] }): Promise<void> {
+        const { adapter, workspaceRoot, epicsMap, storiesMap, remoteEpicsMap, remoteStoriesMap, remoteSubtasksMap } = this._opts;
         const sagaRoot = getSagaRoot(workspaceRoot);
         const provider = adapter.provider;
         let applied = 0;
@@ -339,6 +361,85 @@ export class SyncReviewPanel {
             }
         }
 
+        // ── Subtask resolutions ───────────────────────────────────────────────
+        // Subtasks live embedded in their parent story's subtasks[] array. Batch
+        // resolutions per story and apply them against a single read/write pair
+        // so multiple subtask resolutions under the same story don't clobber
+        // each other's writes.
+        const subtaskResByStory = new Map<string, SubtaskResolutionView[]>();
+        for (const res of resolutions.subtasks) {
+            const [storyId] = res.sagaId.split(':');
+            const list = subtaskResByStory.get(storyId) ?? [];
+            list.push(res);
+            subtaskResByStory.set(storyId, list);
+        }
+
+        for (const [storyId, resList] of subtaskResByStory) {
+            let story: Story;
+            try {
+                story = await readStory(sagaRoot, storyId);
+            } catch (err) {
+                for (const res of resList) { failed.push({ sagaId: res.sagaId, error: String(err) }); }
+                continue;
+            }
+
+            const subtaskMap = new Map(story.subtasks.map((s) => [s.id, s]));
+
+            for (const res of resList) {
+                const [, subtaskId] = res.sagaId.split(':');
+                try {
+                    const local = subtaskMap.get(subtaskId);
+                    if (!local) { continue; }
+
+                    if (res.kind === 'push' || res.kind === 'keep-local') {
+                        const storyRemoteKey = story.remote?.provider === provider ? story.remote.key : undefined;
+                        if (!storyRemoteKey) {
+                            throw new Error(`Parent story ${storyId} has not been pushed to ${provider} yet.`);
+                        }
+                        const result = await adapter.pushSubtask(local, storyRemoteKey);
+                        subtaskMap.set(subtaskId, { ...local, remote: result.remoteRef });
+                        await setMapping(sagaRoot, res.sagaId, provider, {
+                            key: result.remoteRef.key,
+                            url: result.remoteRef.url,
+                            last_synced_hash: result.syncedHash,
+                            last_synced_at: new Date().toISOString(),
+                        });
+                        applied++;
+
+                    } else if (res.kind === 'pull' || res.kind === 'take-remote') {
+                        const remote = remoteSubtasksMap.get(res.sagaId);
+                        if (!remote) { continue; }
+                        const syncedAt = new Date().toISOString();
+                        const updated: Subtask = {
+                            ...local,
+                            title: remote.title || local.title,
+                            done: remote.done,
+                            remote: {
+                                provider,
+                                key: remote.key,
+                                url: remote.url,
+                                last_synced_hash: hashComparableSubtask({ id: local.id, title: remote.title || local.title, done: remote.done }),
+                                last_synced_at: syncedAt,
+                            },
+                        };
+                        subtaskMap.set(subtaskId, updated);
+                        await setMapping(sagaRoot, res.sagaId, provider, {
+                            key: remote.key,
+                            url: remote.url,
+                            last_synced_hash: updated.remote!.last_synced_hash!,
+                            last_synced_at: syncedAt,
+                        });
+                        applied++;
+                    }
+                    // 'skip' — do nothing
+                } catch (err) {
+                    failed.push({ sagaId: res.sagaId, error: String(err) });
+                }
+            }
+
+            await writeStory(sagaRoot, { ...story, subtasks: [...subtaskMap.values()] });
+        }
+
         this.post({ type: 'applyAck', applied, failed });
 
         // Clear conflict markers now that all resolutions have been applied
@@ -365,8 +466,10 @@ function serialisePlan(plan: SyncPlan): SyncPlanView {
     return {
         epics: plan.epics.map(serialiseEpicState),
         stories: plan.stories.map(serialiseStoryState),
+        subtasks: plan.subtasks.map(serialiseSubtaskState),
         unpushedEpicIds: plan.unpushedEpicIds,
         unpushedStoryIds: plan.unpushedStoryIds,
+        unpushedSubtaskIds: plan.unpushedSubtaskIds,
         fetchErrors: plan.fetchErrors,
     };
 }
@@ -387,6 +490,23 @@ function serialiseStoryState(s: StorySyncState): StorySyncStateView {
     const remote = remoteStoryToView(s.remote);
     if (s.kind === 'remote-only') { return { kind: 'remote-only', local, remote }; }
     return { kind: 'conflict', local, remote };
+}
+
+function serialiseSubtaskState(s: SubtaskSyncState): SubtaskSyncStateView {
+    const local = subtaskToView(s.storyId, s.local);
+    if (s.kind === 'in-sync') { return { kind: 'in-sync', syncId: s.syncId, local }; }
+    if (s.kind === 'local-only') { return { kind: 'local-only', syncId: s.syncId, local }; }
+    const remote = remoteSubtaskToView(s.remote);
+    if (s.kind === 'remote-only') { return { kind: 'remote-only', syncId: s.syncId, local, remote }; }
+    return { kind: 'conflict', syncId: s.syncId, local, remote };
+}
+
+function subtaskToView(storyId: string, s: Subtask): LocalSubtaskView {
+    return { id: s.id, storyId, title: s.title, type: s.type, done: s.done };
+}
+
+function remoteSubtaskToView(r: RemoteSubtask): RemoteSubtaskView {
+    return { key: r.key, title: r.title, done: r.done, url: r.url };
 }
 
 function epicToView(e: Epic): LocalEpicView {

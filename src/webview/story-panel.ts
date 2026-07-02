@@ -1,20 +1,26 @@
 import * as vscode from 'vscode';
-import { readStory, writeStory, listEpics, getSagaRoot } from '../saga-repo';
+import { readStory, writeStory, listEpics, getSagaRoot, nextSubtaskId } from '../saga-repo';
 import { InvestValidator } from '../invest/validator';
-import { Story, InvestResult } from '../schema';
+import { generateSubtasks } from '../generation/subtasks';
+import { resolveProviderFromConfig } from '../llm/routing';
+import { Story, InvestResult, Subtask } from '../schema';
 import { LLMProvider } from '../llm/provider';
+import { SecretsManager } from '../secrets';
 import { getWebviewHtml } from './html';
 
 // Matches the message types in webview-ui/src/vscode.ts
 type ExtensionToWebview =
     | { type: 'load'; story: StoryMsg; epics: EpicSummary[] }
     | { type: 'investResult'; invest: InvestResult }
-    | { type: 'saveAck' };
+    | { type: 'saveAck' }
+    | { type: 'generatingSubtasks' }
+    | { type: 'subtasksGenerated'; subtasks: Subtask[] };
 
 type WebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; story: StoryMsg }
-    | { type: 'validate' };
+    | { type: 'validate' }
+    | { type: 'generateSubtasks' };
 
 interface StoryMsg {
     id: string;
@@ -28,6 +34,7 @@ interface StoryMsg {
     acceptance_criteria: string[];
     estimate?: number;
     labels: string[];
+    subtasks: Subtask[];
     invest?: InvestResult;
     // Preserved opaquely so save never loses sync state
     remote?: Story['remote'];
@@ -54,10 +61,14 @@ export class StoryPanel {
         workspaceRoot: vscode.Uri,
         extensionUri: vscode.Uri,
         provider?: LLMProvider,
+        secrets?: SecretsManager,
     ): Promise<void> {
         const existing = StoryPanel._panels.get(storyId);
         if (existing) {
             existing._panel.reveal();
+            // Re-fetch from disk — the story may have changed since the panel was
+            // opened (e.g. subtasks generated via the tree/command-palette flow).
+            await existing.reload();
             return;
         }
 
@@ -72,7 +83,7 @@ export class StoryPanel {
             },
         );
 
-        new StoryPanel(panel, storyId, workspaceRoot, extensionUri, provider);
+        new StoryPanel(panel, storyId, workspaceRoot, extensionUri, provider, secrets);
     }
 
     private constructor(
@@ -81,6 +92,7 @@ export class StoryPanel {
         private readonly workspaceRoot: vscode.Uri,
         private readonly extensionUri: vscode.Uri,
         private readonly provider?: LLMProvider,
+        private readonly secrets?: SecretsManager,
     ) {
         this._panel = panel;
         this._storyId = storyId;
@@ -93,17 +105,23 @@ export class StoryPanel {
         });
     }
 
+    /** Re-reads the story from disk and pushes a fresh `load` to the webview. */
+    private async reload(): Promise<void> {
+        const sagaRoot = getSagaRoot(this.workspaceRoot);
+        const story = await readStory(sagaRoot, this._storyId);
+        const epics = await listEpics(sagaRoot);
+        this.post({
+            type: 'load',
+            story: storyToMsg(story),
+            epics: epics.map((e) => ({ id: e.id, title: e.title })),
+        });
+    }
+
     private async handleMessage(msg: WebviewToExtension): Promise<void> {
         const sagaRoot = getSagaRoot(this.workspaceRoot);
 
         if (msg.type === 'ready') {
-            const story = await readStory(sagaRoot, this._storyId);
-            const epics = await listEpics(sagaRoot);
-            this.post({
-                type: 'load',
-                story: storyToMsg(story),
-                epics: epics.map((e) => ({ id: e.id, title: e.title })),
-            });
+            await this.reload();
         }
 
         if (msg.type === 'save') {
@@ -122,6 +140,33 @@ export class StoryPanel {
             this.post({ type: 'investResult', invest });
             // Also persist the invest result back to the YAML
             await writeStory(sagaRoot, { ...story, invest });
+        }
+
+        if (msg.type === 'generateSubtasks') {
+            this.post({ type: 'generatingSubtasks' });
+            const sagaRoot = getSagaRoot(this.workspaceRoot);
+            const story = await readStory(sagaRoot, this._storyId);
+
+            const resolved = await resolveProviderFromConfig('subtask_generation', this.workspaceRoot, this.secrets);
+            if (!resolved) {
+                vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
+                this.post({ type: 'subtasksGenerated', subtasks: story.subtasks });
+                return;
+            }
+
+            try {
+                const result = await generateSubtasks(resolved.provider, story);
+                const updated: Story = { ...story, subtasks: [...story.subtasks] };
+                for (const proposed of result.items) {
+                    const id = nextSubtaskId(updated);
+                    updated.subtasks.push({ id, title: proposed.title, type: proposed.type, done: false });
+                }
+                await writeStory(sagaRoot, updated);
+                this.post({ type: 'subtasksGenerated', subtasks: updated.subtasks });
+            } catch (err) {
+                vscode.window.showErrorMessage(`Saga: Subtask generation failed — ${err instanceof Error ? err.message : String(err)}`);
+                this.post({ type: 'subtasksGenerated', subtasks: story.subtasks });
+            }
         }
     }
 
@@ -149,6 +194,7 @@ function storyToMsg(story: Story): StoryMsg {
         acceptance_criteria: story.acceptance_criteria,
         estimate: story.estimate,
         labels: story.labels,
+        subtasks: story.subtasks,
         invest: story.invest,
         remote: story.remote,
         local_hash: story.local_hash,
@@ -169,6 +215,7 @@ function msgToStory(msg: StoryMsg): Story {
         acceptance_criteria: msg.acceptance_criteria,
         estimate: msg.estimate,
         labels: msg.labels,
+        subtasks: msg.subtasks,
         invest: msg.invest,
         remote: msg.remote,
         local_hash: msg.local_hash,

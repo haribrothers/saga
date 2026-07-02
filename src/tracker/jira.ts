@@ -1,10 +1,11 @@
-import { Epic, Story } from '../schema';
-import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory } from './adapter';
-import { hashEpic, hashStory } from './hash';
+import { Epic, Story, Subtask } from '../schema';
+import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
+import { hashEpic, hashStory, hashComparableSubtask } from './hash';
 import {
     JiraConfig,
     toJiraEpicFields,
     toJiraStoryFields,
+    toJiraSubtaskFields,
     JiraIssueFields,
 } from './field-mapping';
 
@@ -115,6 +116,37 @@ export class JiraAdapter implements TrackerAdapter {
         };
     }
 
+    async pushSubtask(subtask: Subtask, storyRemoteKey: string): Promise<PushResult> {
+        const fields = toJiraSubtaskFields(subtask, this.cfg, storyRemoteKey);
+        // Use the tracker-comparable hash (excludes `type`, which trackers don't
+        // model) so it's directly comparable to hashRemoteSubtask() during sync.
+        const hash = hashComparableSubtask(subtask);
+
+        let key: string;
+        let url: string;
+
+        if (subtask.remote?.provider === 'jira' && subtask.remote.key) {
+            await this.updateIssue(subtask.remote.key, fields);
+            key = subtask.remote.key;
+            url = this.browseUrl(key);
+        } else {
+            const created = await this.createIssue(fields);
+            key = created.key;
+            url = this.browseUrl(key);
+        }
+
+        return {
+            remoteRef: {
+                provider: 'jira',
+                key,
+                url,
+                last_synced_hash: hash,
+                last_synced_at: new Date().toISOString(),
+            },
+            syncedHash: hash,
+        };
+    }
+
     async deleteEpic(epic: Epic): Promise<void> {
         if (epic.remote?.provider !== 'jira' || !epic.remote.key) {
             throw new TrackerError('Epic has no Jira remote key — nothing to delete.');
@@ -180,6 +212,18 @@ export class JiraAdapter implements TrackerAdapter {
             acceptance_criteria,
             estimate: Number.isFinite(estimate) ? estimate : undefined,
             labels: issue.fields.labels ?? [],
+            url: this.browseUrl(remoteKey),
+        };
+    }
+
+    async fetchSubtask(remoteKey: string): Promise<RemoteSubtask> {
+        const issue = await this.get<JiraSubtaskIssueResponse>(
+            `/rest/api/3/issue/${remoteKey}?fields=summary,status`,
+        );
+        return {
+            key: remoteKey,
+            title: issue.fields.summary,
+            done: issue.fields.status?.statusCategory?.key === 'done',
             url: this.browseUrl(remoteKey),
         };
     }
@@ -293,6 +337,14 @@ interface JiraIssueResponse {
         description: AdfDoc | null;
         labels: string[];
         [key: string]: unknown;
+    };
+}
+
+interface JiraSubtaskIssueResponse {
+    key: string;
+    fields: {
+        summary: string;
+        status?: { statusCategory?: { key?: string } };
     };
 }
 

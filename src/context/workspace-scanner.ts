@@ -10,6 +10,12 @@ export interface RelevantFile {
     score: number;
 }
 
+export interface RelevantFileContent {
+    relativePath: string;
+    /** Up to MAX_CONTENT_LINES lines of the file's content. */
+    content: string;
+}
+
 export interface StackInfo {
     /** Detected language/framework identifiers (e.g. 'typescript', 'react', 'python'). */
     languages: string[];
@@ -33,6 +39,13 @@ const EXCLUDED_DIRS = new Set([
 const MAX_CANDIDATES = 200;
 const MAX_RESULTS = 20;
 const MIN_SCORE = 0.1;
+const MAX_CONTENT_LINES = 150;
+
+/** Filenames that are binary or lock files — never include their content in a prompt. */
+const EXCLUDED_CONTENT_FILES = new Set([
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock',
+    'cargo.lock', 'gemfile.lock', 'composer.lock', 'go.sum',
+]);
 
 // ─── Stack detection ──────────────────────────────────────────────────────────
 
@@ -160,6 +173,36 @@ export async function findRelevantFiles(
     // Sort descending by score, cap at MAX_RESULTS
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, MAX_RESULTS);
+}
+
+/**
+ * Returns the top-scored relevant files with their content (up to MAX_CONTENT_LINES
+ * lines each), for inclusion in an agent prompt. Binary/lock files are excluded.
+ */
+export async function getRelevantFileContents(
+    workspaceRoot: vscode.Uri,
+    story: { title: string; labels?: string[]; as_a?: string; i_want?: string },
+): Promise<RelevantFileContent[]> {
+    const files = await findRelevantFiles(workspaceRoot, story);
+    const results: RelevantFileContent[] = [];
+
+    for (const file of files) {
+        const basename = path.basename(file.relativePath).toLowerCase();
+        if (EXCLUDED_CONTENT_FILES.has(basename)) { continue; }
+
+        try {
+            const bytes = await vscode.workspace.fs.readFile(
+                vscode.Uri.joinPath(workspaceRoot, file.relativePath),
+            );
+            const text = Buffer.from(bytes).toString('utf-8');
+            const lines = text.split('\n').slice(0, MAX_CONTENT_LINES);
+            results.push({ relativePath: file.relativePath, content: lines.join('\n') });
+        } catch {
+            // Unreadable file (permissions, binary decode issue) — skip.
+        }
+    }
+
+    return results;
 }
 
 // ─── Directory layout ─────────────────────────────────────────────────────────

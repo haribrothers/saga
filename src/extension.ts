@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { SecretsManager } from './secrets';
 import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
-import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, writePrompt } from './saga-repo';
+import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, nextSubtaskId, writePrompt, readContextRegistry, getContextDir } from './saga-repo';
 import { ContextManager } from './context/manager';
-import { detectStack, findRelevantFiles, getDirectoryLayout } from './context/workspace-scanner';
+import { detectStack, findRelevantFiles, getDirectoryLayout, getRelevantFileContents } from './context/workspace-scanner';
 import { generateAgentPrompt } from './generation/agent-prompt';
 import { generateAgentsMd } from './generation/agents-md';
+import { generateSubtasks } from './generation/subtasks';
 import { readLock, writeLock, sha256 } from './agents-md-lock';
 import { AgentPromptPanel } from './webview/agent-prompt-panel';
 import { AgentsMdPanel } from './webview/agents-md-panel';
@@ -22,7 +23,7 @@ import { setMapping, readMappings, writeMappings } from './tracker/sync-store';
 import { buildSyncPlan } from './tracker/sync-engine';
 import { writeConflicts } from './tracker/conflicts-store';
 import { SyncReviewPanel } from './webview/sync-review-panel';
-import type { TrackerAdapter, RemoteEpic, RemoteStory } from './tracker/adapter';
+import type { TrackerAdapter, RemoteEpic, RemoteStory, RemoteSubtask } from './tracker/adapter';
 import type { Epic, Story } from './schema';
 
 // ─── Module-level helpers ─────────────────────────────────────────────────────
@@ -422,7 +423,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const root = requireRoot();
             if (!root || !(await requireInit(root))) { return; }
             const resolved = await resolveProviderFromConfig('invest_validation', root, secrets);
-            await StoryPanel.open(storyId, root, context.extensionUri, resolved?.provider);
+            await StoryPanel.open(storyId, root, context.extensionUri, resolved?.provider, secrets);
         },
     );
 
@@ -705,6 +706,30 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     }
 
+    /** Push one subtask under its parent story and persist the remote ref back onto the story. */
+    async function pushOneSubtask(
+        adapter: TrackerAdapter,
+        sagaRoot: vscode.Uri,
+        storyId: string,
+        subtaskId: string,
+        storyRemoteKey: string,
+    ): Promise<void> {
+        const story = await readStory(sagaRoot, storyId);
+        const subtask = story.subtasks.find((s) => s.id === subtaskId);
+        if (!subtask) { return; }
+        const result = await adapter.pushSubtask(subtask, storyRemoteKey);
+        const updatedSubtasks = story.subtasks.map((s) =>
+            s.id === subtaskId ? { ...s, remote: result.remoteRef } : s,
+        );
+        await writeStory(sagaRoot, { ...story, subtasks: updatedSubtasks });
+        await setMapping(sagaRoot, `${storyId}:${subtaskId}`, adapter.provider, {
+            key: result.remoteRef.key,
+            url: result.remoteRef.url,
+            last_synced_hash: result.syncedHash,
+            last_synced_at: result.remoteRef.last_synced_at ?? new Date().toISOString(),
+        });
+    }
+
     /** Push one epic and persist remote ref + sync store entry. Returns the remote key. */
     async function pushOneEpic(
         adapter: TrackerAdapter,
@@ -890,11 +915,32 @@ export async function activate(context: vscode.ExtensionContext) {
             sagaTree?.refresh();
             if (!remoteKey) { return; }
 
+            // Subtasks are only pushable once the parent story has a remote key.
+            const storyWithSubtasks = await readStory(sagaRoot, storyId);
+            const unpushedSubtasks = storyWithSubtasks.subtasks.filter(
+                (s) => !(s.remote?.provider === adapter.provider && s.remote.key),
+            );
+            const pushSubtasksLabel = unpushedSubtasks.length > 0
+                ? `Push ${unpushedSubtasks.length} ${unpushedSubtasks.length === 1 ? 'Subtask' : 'Subtasks'}`
+                : undefined;
+
             const action = await vscode.window.showInformationMessage(
                 `${isUpdate ? 'Updated' : 'Created'} ${remoteKey} in ${adapter.provider}.`,
-                'Open in Browser',
+                ...(pushSubtasksLabel ? [pushSubtasksLabel, 'Open in Browser'] : ['Open in Browser']),
             );
-            if (action === 'Open in Browser') {
+
+            if (action === pushSubtasksLabel && pushSubtasksLabel) {
+                await vscode.window.withProgress(
+                    { location: vscode.ProgressLocation.Notification, title: `Saga: Pushing ${unpushedSubtasks.length} subtasks…`, cancellable: false },
+                    async () => {
+                        for (const s of unpushedSubtasks) {
+                            await pushOneSubtask(adapter, sagaRoot, storyId!, s.id, remoteKey!);
+                        }
+                    },
+                );
+                sagaTree?.refresh();
+                vscode.window.showInformationMessage(`Pushed ${unpushedSubtasks.length} subtasks under ${remoteKey}.`);
+            } else if (action === 'Open in Browser') {
                 const updated = await readStory(sagaRoot, storyId);
                 if (updated.remote?.url) {
                     await vscode.env.openExternal(vscode.Uri.parse(updated.remote.url));
@@ -1040,12 +1086,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
         plan = plan!;
 
-        // Write conflict IDs to sidecar so the tree shows ⚠ badges immediately
+        // Write conflict IDs to sidecar so the tree shows ⚠ badges immediately.
+        // Subtask conflicts surface as a conflict badge on their parent story —
+        // the tree has no subtask-level badge rendering.
         const conflictIds = [
             ...plan.epics.filter((s) => s.kind === 'conflict').map((s) => s.local.id),
             ...plan.stories.filter((s) => s.kind === 'conflict').map((s) => s.local.id),
+            ...plan.subtasks.filter((s) => s.kind === 'conflict').map((s) => s.storyId),
         ];
-        await writeConflicts(sagaRoot, conflictIds);
+        await writeConflicts(sagaRoot, [...new Set(conflictIds)]);
         sagaTree?.refresh();
 
         if (plan.fetchErrors.length > 0) {
@@ -1071,6 +1120,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 .filter((s): s is typeof s & { remote: RemoteStory } => 'remote' in s)
                 .map((s) => [s.local.id, s.remote]),
         );
+        const remoteSubtasksMap = new Map<string, RemoteSubtask>(
+            plan.subtasks
+                .filter((s): s is typeof s & { remote: RemoteSubtask } => 'remote' in s)
+                .map((s) => [s.syncId, s.remote]),
+        );
 
         await SyncReviewPanel.open({
             plan,
@@ -1079,6 +1133,7 @@ export async function activate(context: vscode.ExtensionContext) {
             storiesMap,
             remoteEpicsMap,
             remoteStoriesMap,
+            remoteSubtasksMap,
             workspaceRoot: root,
             extensionUri: context.extensionUri,
         });
@@ -1120,6 +1175,29 @@ export async function activate(context: vscode.ExtensionContext) {
             const manager = new ContextManager(sagaRoot);
             const contextTexts = await manager.loadContextTexts();
 
+            // F29 — let the user pick which relevant files to include full content for.
+            const allFileContents = await getRelevantFileContents(root, story);
+            let selectedFileContents = allFileContents;
+            if (allFileContents.length > 0) {
+                const scoreByPath = new Map(
+                    (await findRelevantFiles(root, story)).map((f) => [f.relativePath, f.score]),
+                );
+                const items = allFileContents.map((f) => ({
+                    label: f.relativePath,
+                    description: `relevance ${(scoreByPath.get(f.relativePath) ?? 0).toFixed(2)} · ~${Math.ceil(f.content.length / 4)} tokens`,
+                    picked: true,
+                    file: f,
+                }));
+                const totalTokens = items.reduce((sum, i) => sum + Math.ceil(i.file.content.length / 4), 0);
+                const picked = await vscode.window.showQuickPick(items, {
+                    canPickMany: true,
+                    placeHolder: `Include file contents in the prompt (~${totalTokens} tokens total) — deselect to exclude`,
+                    title: 'Saga: Relevant Files to Include',
+                });
+                // undefined = user cancelled the picker (Escape) — proceed with none selected
+                selectedFileContents = (picked ?? []).map((i) => i.file);
+            }
+
             let promptResult: Awaited<ReturnType<typeof generateAgentPrompt>> | undefined;
             let cancelled = false;
 
@@ -1144,6 +1222,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             relevantFiles,
                             contextTexts,
                             abort.signal,
+                            selectedFileContents,
                         );
                     } catch (err) {
                         if (isAbortError(err)) { cancelled = true; }
@@ -1167,6 +1246,83 @@ export async function activate(context: vscode.ExtensionContext) {
                     await writePrompt(sagaRoot, storyId!, content);
                 },
             });
+        },
+    );
+
+    // ── saga.generateSubtasks (F28) ───────────────────────────────────────────
+    const generateSubtasksCmd = vscode.commands.registerCommand(
+        'saga.generateSubtasks',
+        async (arg?: string | { story?: { id: string }; id?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            let storyId: string | undefined;
+            if (typeof arg === 'string') { storyId = arg; }
+            else if (arg && typeof arg === 'object') {
+                storyId = (arg as { story?: { id: string } }).story?.id ?? (arg as { id?: string }).id;
+            }
+            if (!storyId) {
+                const stories = await listStories(sagaRoot);
+                if (stories.length === 0) { vscode.window.showWarningMessage('No stories found. Generate stories first.'); return; }
+                const picked = await vscode.window.showQuickPick(
+                    stories.map((s) => ({ label: s.id, description: `${s.epic} — ${s.title}` })),
+                    { placeHolder: 'Select a story to propose subtasks for' },
+                );
+                if (!picked) { return; }
+                storyId = picked.label;
+            }
+
+            const story = await readStory(sagaRoot, storyId);
+
+            const resolved = await resolveProviderFromConfig('subtask_generation', root, secrets);
+            if (!resolved) {
+                vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
+                return;
+            }
+
+            let result: Awaited<ReturnType<typeof generateSubtasks>> | undefined;
+            let cancelled = false;
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Saga: Proposing subtasks for ${storyId} via ${resolved.modelLabel}…`,
+                    cancellable: true,
+                },
+                async (_progress, token) => {
+                    const abort = new AbortController();
+                    token.onCancellationRequested(() => abort.abort());
+                    try {
+                        result = await generateSubtasks(resolved.provider, story, abort.signal);
+                    } catch (err) {
+                        if (isAbortError(err)) { cancelled = true; }
+                        else { throw err; }
+                    }
+                },
+            );
+
+            if (cancelled) { vscode.window.showInformationMessage('Saga: Subtask generation cancelled.'); return; }
+            if (!result) { return; }
+
+            logTokenUsage('subtask_generation', resolved.modelLabel, result.usage);
+
+            // Merge proposed subtasks into the story, allocating scoped IDs, and open the editor.
+            const updated: Story = { ...story, subtasks: [...story.subtasks] };
+            for (const proposed of result.items) {
+                const id = nextSubtaskId(updated);
+                updated.subtasks.push({ id, title: proposed.title, type: proposed.type, done: false });
+            }
+            await writeStory(sagaRoot, updated);
+            sagaTree?.refresh();
+
+            const openIt = await vscode.window.showInformationMessage(
+                `Added ${result.items.length} subtask(s) to ${storyId}.`,
+                'Open Story',
+            );
+            if (openIt === 'Open Story') {
+                await vscode.commands.executeCommand('saga.openStory', storyId);
+            }
         },
     );
 
@@ -1269,6 +1425,55 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     });
 
+    // ── saga.openContextFile (F30) ────────────────────────────────────────────
+    const openContextFileCmd = vscode.commands.registerCommand(
+        'saga.openContextFile',
+        async (arg?: string | { filename?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            const filename = typeof arg === 'string' ? arg : arg?.filename;
+            if (!filename) { return; }
+
+            // Inline context entries always live at .saga/context/<filename>.
+            if (filename.startsWith('inline-')) {
+                const uri = vscode.Uri.joinPath(getContextDir(sagaRoot), filename);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(uri);
+                    await vscode.window.showTextDocument(doc);
+                } catch {
+                    vscode.window.showErrorMessage(`Saga: Could not open ${filename}.`);
+                }
+                return;
+            }
+
+            const registry = await readContextRegistry(sagaRoot);
+            const entry = registry.entries.find((e) => e.filename === filename);
+
+            // Prefer the original registered path if it still exists.
+            if (entry?.path) {
+                try {
+                    const originalUri = vscode.Uri.file(entry.path);
+                    await vscode.workspace.fs.stat(originalUri);
+                    const doc = await vscode.workspace.openTextDocument(originalUri);
+                    await vscode.window.showTextDocument(doc);
+                    return;
+                } catch {
+                    // Original path moved/deleted — fall back to the .saga/context/ copy.
+                }
+            }
+
+            const copyUri = vscode.Uri.joinPath(getContextDir(sagaRoot), filename);
+            try {
+                const doc = await vscode.workspace.openTextDocument(copyUri);
+                await vscode.window.showTextDocument(doc);
+            } catch {
+                vscode.window.showInformationMessage(`Saga: "${filename}" could not be found — the original file may have been moved or deleted.`);
+            }
+        },
+    );
+
     // ── saga.openSettings ──────────────────────────────────────────────────────
     const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
         const root = requireRoot();
@@ -1324,7 +1529,9 @@ export async function activate(context: vscode.ExtensionContext) {
         pushAllCmd,
         syncCmd,
         generateAgentPromptCmd,
+        generateSubtasksCmd,
         generateAgentsMdCmd,
+        openContextFileCmd,
         openSettingsCmd,
         testGenCmd,
     );

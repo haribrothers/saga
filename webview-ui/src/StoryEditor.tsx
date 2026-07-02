@@ -2,6 +2,7 @@ import { useEffect, useReducer, useCallback } from 'react';
 import vscode, {
     ExtensionToWebview,
     StoryData,
+    SubtaskData,
     EpicSummary,
     InvestData,
     InvestGrade,
@@ -10,7 +11,7 @@ import './editor.css';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-type Tab = 'form' | 'yaml';
+type Tab = 'form' | 'subtasks' | 'yaml';
 
 interface EditorState {
     story: StoryData | null;
@@ -20,6 +21,7 @@ interface EditorState {
     dirty: boolean;
     saving: boolean;
     validating: boolean;
+    generatingSubtasks: boolean;
 }
 
 type Action =
@@ -29,7 +31,9 @@ type Action =
     | { type: 'SET_TAB'; tab: Tab }
     | { type: 'SAVING' }
     | { type: 'SAVE_ACK' }
-    | { type: 'VALIDATING' };
+    | { type: 'VALIDATING' }
+    | { type: 'GENERATING_SUBTASKS' }
+    | { type: 'SUBTASKS_GENERATED'; subtasks: SubtaskData[] };
 
 function reducer(state: EditorState, action: Action): EditorState {
     switch (action.type) {
@@ -55,6 +59,12 @@ function reducer(state: EditorState, action: Action): EditorState {
             return { ...state, saving: false, dirty: false };
         case 'VALIDATING':
             return { ...state, validating: true };
+        case 'GENERATING_SUBTASKS':
+            return { ...state, generatingSubtasks: true };
+        case 'SUBTASKS_GENERATED':
+            return state.story
+                ? { ...state, story: { ...state.story, subtasks: action.subtasks }, generatingSubtasks: false }
+                : { ...state, generatingSubtasks: false };
         default:
             return state;
     }
@@ -68,6 +78,7 @@ const initial: EditorState = {
     dirty: false,
     saving: false,
     validating: false,
+    generatingSubtasks: false,
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -85,6 +96,10 @@ export function StoryEditor() {
                 dispatch({ type: 'INVEST_RESULT', invest: msg.invest });
             } else if (msg.type === 'saveAck') {
                 dispatch({ type: 'SAVE_ACK' });
+            } else if (msg.type === 'generatingSubtasks') {
+                dispatch({ type: 'GENERATING_SUBTASKS' });
+            } else if (msg.type === 'subtasksGenerated') {
+                dispatch({ type: 'SUBTASKS_GENERATED', subtasks: msg.subtasks });
             }
         };
         window.addEventListener('message', handler);
@@ -102,6 +117,11 @@ export function StoryEditor() {
     const handleValidate = useCallback(() => {
         dispatch({ type: 'VALIDATING' });
         vscode.postMessage({ type: 'validate' });
+    }, []);
+
+    const handleGenerateSubtasks = useCallback(() => {
+        dispatch({ type: 'GENERATING_SUBTASKS' });
+        vscode.postMessage({ type: 'generateSubtasks' });
     }, []);
 
     if (!state.story) {
@@ -133,6 +153,12 @@ export function StoryEditor() {
                     Form
                 </button>
                 <button
+                    className={state.activeTab === 'subtasks' ? 'tab active' : 'tab'}
+                    onClick={() => dispatch({ type: 'SET_TAB', tab: 'subtasks' })}
+                >
+                    Subtasks{story.subtasks.length ? ` (${story.subtasks.length})` : ''}
+                </button>
+                <button
                     className={state.activeTab === 'yaml' ? 'tab active' : 'tab'}
                     onClick={() => dispatch({ type: 'SET_TAB', tab: 'yaml' })}
                 >
@@ -143,6 +169,13 @@ export function StoryEditor() {
             <main className="editor-body">
                 {state.activeTab === 'form' ? (
                     <FormView story={story} epics={state.epics} invest={invest} dispatch={dispatch} />
+                ) : state.activeTab === 'subtasks' ? (
+                    <SubtasksView
+                        story={story}
+                        generating={state.generatingSubtasks}
+                        dispatch={dispatch}
+                        onGenerate={handleGenerateSubtasks}
+                    />
                 ) : (
                     <YamlView story={story} />
                 )}
@@ -253,6 +286,91 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     );
 }
 
+// ─── Subtasks tab ─────────────────────────────────────────────────────────────
+
+function SubtasksView({
+    story,
+    generating,
+    dispatch,
+    onGenerate,
+}: {
+    story: StoryData;
+    generating: boolean;
+    dispatch: React.Dispatch<Action>;
+    onGenerate: () => void;
+}) {
+    const setSubtasks = (subtasks: SubtaskData[]) => dispatch({ type: 'UPDATE', patch: { subtasks } });
+
+    const toggleDone = (id: string) => {
+        setSubtasks(story.subtasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s)));
+    };
+
+    const updateTitle = (id: string, title: string) => {
+        setSubtasks(story.subtasks.map((s) => (s.id === id ? { ...s, title } : s)));
+    };
+
+    const updateType = (id: string, type: SubtaskData['type']) => {
+        setSubtasks(story.subtasks.map((s) => (s.id === id ? { ...s, type } : s)));
+    };
+
+    const removeSubtask = (id: string) => {
+        setSubtasks(story.subtasks.filter((s) => s.id !== id));
+    };
+
+    const addSubtask = () => {
+        const nums = story.subtasks
+            .map((s) => parseInt(s.id.replace(/^SUB-(\d+)$/, '$1'), 10))
+            .filter((n) => !isNaN(n));
+        const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+        const id = `SUB-${String(next).padStart(3, '0')}`;
+        setSubtasks([...story.subtasks, { id, title: '', type: 'task', done: false }]);
+    };
+
+    return (
+        <div className="subtasks-view">
+            <div className="subtasks-toolbar">
+                <button onClick={onGenerate} disabled={generating} className="btn-secondary">
+                    {generating ? 'Generating…' : '✨ Generate Subtasks'}
+                </button>
+                <button onClick={addSubtask} className="btn-secondary">+ Add Subtask</button>
+            </div>
+
+            {story.subtasks.length === 0 ? (
+                <p className="hint">No subtasks yet. Generate a checklist or add one manually.</p>
+            ) : (
+                <ul className="subtask-list">
+                    {story.subtasks.map((s) => (
+                        <li key={s.id} className="subtask-row">
+                            <input
+                                type="checkbox"
+                                checked={s.done}
+                                onChange={() => toggleDone(s.id)}
+                                className="subtask-checkbox"
+                            />
+                            <input
+                                value={s.title}
+                                onChange={(e) => updateTitle(s.id, e.target.value)}
+                                className={s.done ? 'input-text subtask-title done' : 'input-text subtask-title'}
+                                placeholder="Subtask title"
+                            />
+                            <select
+                                value={s.type}
+                                onChange={(e) => updateType(s.id, e.target.value as SubtaskData['type'])}
+                                className="input-select subtask-type"
+                            >
+                                <option value="task">task</option>
+                                <option value="test">test</option>
+                                <option value="chore">chore</option>
+                            </select>
+                            <button onClick={() => removeSubtask(s.id)} className="btn-secondary subtask-remove" title="Remove">✕</button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 // ─── INVEST badges ────────────────────────────────────────────────────────────
 
 const INVEST_KEYS = ['independent', 'negotiable', 'valuable', 'estimable', 'small', 'testable'] as const;
@@ -314,5 +432,11 @@ function storyToYaml(story: StoryData): string {
     }
     if (story.estimate) lines.push(`estimate: ${story.estimate}`);
     if (story.labels.length) lines.push(`labels: [${story.labels.join(', ')}]`);
+    if (story.subtasks.length) {
+        lines.push(`subtasks:`);
+        for (const s of story.subtasks) {
+            lines.push(`  - id: ${s.id}`, `    title: ${s.title}`, `    type: ${s.type}`, `    done: ${s.done}`);
+        }
+    }
     return lines.join('\n');
 }

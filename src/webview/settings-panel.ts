@@ -52,6 +52,7 @@ export interface SettingsConfigData {
             email: string;
             epic_issue_type: string;
             story_issue_type: string;
+            subtask_issue_type: string;
             ac_field_id: string;
             epic_link_style: 'parent' | 'customfield_10014';
             story_points_field_id: string; // empty string = omit from push
@@ -222,6 +223,7 @@ export class SettingsPanel {
                         email: raw.tracker.jira?.email ?? '',
                         epic_issue_type: raw.tracker.jira?.epic_issue_type ?? 'Epic',
                         story_issue_type: raw.tracker.jira?.story_issue_type ?? 'Story',
+                        subtask_issue_type: raw.tracker.jira?.subtask_issue_type ?? 'Sub-task',
                         ac_field_id: raw.tracker.jira?.ac_field_id ?? 'description',
                         epic_link_style: raw.tracker.jira?.epic_link_style ?? 'parent',
                         story_points_field_id: raw.tracker.jira?.story_points_field_id ?? '',
@@ -278,6 +280,7 @@ export class SettingsPanel {
         setIn(doc, ['tracker', 'jira', 'email'],              data.tracker.jira.email);
         setIn(doc, ['tracker', 'jira', 'epic_issue_type'],    data.tracker.jira.epic_issue_type);
         setIn(doc, ['tracker', 'jira', 'story_issue_type'],   data.tracker.jira.story_issue_type);
+        setIn(doc, ['tracker', 'jira', 'subtask_issue_type'], data.tracker.jira.subtask_issue_type);
         setIn(doc, ['tracker', 'jira', 'ac_field_id'],        data.tracker.jira.ac_field_id);
         setIn(doc, ['tracker', 'jira', 'epic_link_style'],         data.tracker.jira.epic_link_style);
         // Only write story_points_field_id when non-empty; omit to keep the
@@ -481,6 +484,7 @@ export class SettingsPanel {
                         email: jiraCfg.email,
                         epicIssueType: jiraCfg.epic_issue_type,
                         storyIssueType: jiraCfg.story_issue_type,
+                        subtaskIssueType: jiraCfg.subtask_issue_type,
                         acFieldId: jiraCfg.ac_field_id,
                         epicLinkStyle: jiraCfg.epic_link_style,
                     },
@@ -564,7 +568,7 @@ function defaultSettingsConfig(): SettingsConfigData {
         },
         tracker: {
             default: 'none',
-            jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', ac_field_id: 'description', epic_link_style: 'parent', story_points_field_id: '' },
+            jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', subtask_issue_type: 'Sub-task', ac_field_id: 'description', epic_link_style: 'parent', story_points_field_id: '' },
             ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story' },
         },
     };

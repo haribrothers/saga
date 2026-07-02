@@ -1,7 +1,7 @@
-import { Epic, Story } from '../schema';
-import { TrackerAdapter, RemoteEpic, RemoteStory } from './adapter';
+import { Epic, Story, Subtask } from '../schema';
+import { TrackerAdapter, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
 import { RemoteMapping, readMappings } from './sync-store';
-import { hashEpic, hashStory, hashRemoteEpic, hashRemoteStory } from './hash';
+import { hashEpic, hashStory, hashComparableSubtask, hashRemoteEpic, hashRemoteStory, hashRemoteSubtask } from './hash';
 import * as vscode from 'vscode';
 
 // ─── Sync state classification ────────────────────────────────────────────────
@@ -18,14 +18,23 @@ export type StorySyncState =
     | { kind: 'remote-only'; local: Story; remote: RemoteStory }
     | { kind: 'conflict'; local: Story; remote: RemoteStory; mapping: RemoteMapping };
 
+/** `syncId` is `${storyId}:${subtask.id}` — subtask IDs are only unique within a story. */
+export type SubtaskSyncState =
+    | { kind: 'in-sync'; syncId: string; storyId: string; local: Subtask }
+    | { kind: 'local-only'; syncId: string; storyId: string; local: Subtask }
+    | { kind: 'remote-only'; syncId: string; storyId: string; local: Subtask; remote: RemoteSubtask }
+    | { kind: 'conflict'; syncId: string; storyId: string; local: Subtask; remote: RemoteSubtask; mapping: RemoteMapping };
+
 // ─── Sync plan ────────────────────────────────────────────────────────────────
 
 export interface SyncPlan {
     epics: EpicSyncState[];
     stories: StorySyncState[];
+    subtasks: SubtaskSyncState[];
     /** Items that have no remote key and have never been pushed — excluded from sync. */
     unpushedEpicIds: string[];
     unpushedStoryIds: string[];
+    unpushedSubtaskIds: string[];
     /** Items that failed to fetch from the remote (network/auth errors). */
     fetchErrors: Array<{ sagaId: string; error: string }>;
 }
@@ -46,9 +55,18 @@ export type StoryResolution =
     | { kind: 'take-remote'; sagaId: string }
     | { kind: 'skip'; sagaId: string };
 
+/** sagaId here is the syncId (`${storyId}:${subtaskId}`). */
+export type SubtaskResolution =
+    | { kind: 'push'; sagaId: string }
+    | { kind: 'pull'; sagaId: string }
+    | { kind: 'keep-local'; sagaId: string }
+    | { kind: 'take-remote'; sagaId: string }
+    | { kind: 'skip'; sagaId: string };
+
 export interface SyncResolutions {
     epics: EpicResolution[];
     stories: StoryResolution[];
+    subtasks: SubtaskResolution[];
 }
 
 // ─── Apply result ─────────────────────────────────────────────────────────────
@@ -80,8 +98,10 @@ export async function buildSyncPlan(
     const plan: SyncPlan = {
         epics: [],
         stories: [],
+        subtasks: [],
         unpushedEpicIds: [],
         unpushedStoryIds: [],
+        unpushedSubtaskIds: [],
         fetchErrors: [],
     };
 
@@ -125,9 +145,34 @@ export async function buildSyncPlan(
         plan.stories.push(classifyStory(story, remote, mapping));
     }));
 
+    // ── Subtasks (nested under each story) ──────────────────────────────────────
+    const subtaskJobs = stories.flatMap((story) =>
+        story.subtasks.map((subtask) => ({ story, subtask })),
+    );
+    await Promise.all(subtaskJobs.map(async ({ story, subtask }) => {
+        const syncId = `${story.id}:${subtask.id}`;
+        const remoteKey = subtask.remote?.provider === provider ? subtask.remote.key : undefined;
+        if (!remoteKey) {
+            plan.unpushedSubtaskIds.push(syncId);
+            return;
+        }
+
+        const mapping = mappings[syncId]?.[provider];
+        let remote: RemoteSubtask;
+        try {
+            remote = await adapter.fetchSubtask(remoteKey);
+        } catch (err) {
+            plan.fetchErrors.push({ sagaId: syncId, error: String(err) });
+            return;
+        }
+
+        plan.subtasks.push(classifySubtask(story.id, subtask, remote, mapping));
+    }));
+
     // Sort results for deterministic rendering: epics and stories in SAGA-ID order
     plan.epics.sort((a, b) => a.local.id.localeCompare(b.local.id));
     plan.stories.sort((a, b) => a.local.id.localeCompare(b.local.id));
+    plan.subtasks.sort((a, b) => a.syncId.localeCompare(b.syncId));
 
     return plan;
 }
@@ -181,7 +226,32 @@ function classifyStory(
     return { kind: 'in-sync', local };
 }
 
-function makeFallbackMapping(remote: NonNullable<Epic['remote'] | Story['remote']>): RemoteMapping {
+function classifySubtask(
+    storyId: string,
+    local: Subtask,
+    remote: RemoteSubtask,
+    mapping: RemoteMapping | undefined,
+): SubtaskSyncState {
+    const syncId = `${storyId}:${local.id}`;
+    const localHash = hashComparableSubtask(local);
+    const remoteHash = hashRemoteSubtask(remote, local.id);
+    const baseHash = mapping?.last_synced_hash ?? local.remote?.last_synced_hash;
+
+    const localChanged = baseHash !== undefined && localHash !== baseHash;
+    const remoteChanged = baseHash !== undefined && remoteHash !== baseHash;
+
+    if (localChanged && remoteChanged) {
+        if (!mapping) {
+            return { kind: 'conflict', syncId, storyId, local, remote, mapping: makeFallbackMapping(local.remote!) };
+        }
+        return { kind: 'conflict', syncId, storyId, local, remote, mapping };
+    }
+    if (localChanged) { return { kind: 'local-only', syncId, storyId, local }; }
+    if (remoteChanged) { return { kind: 'remote-only', syncId, storyId, local, remote }; }
+    return { kind: 'in-sync', syncId, storyId, local };
+}
+
+function makeFallbackMapping(remote: NonNullable<Epic['remote'] | Story['remote'] | Subtask['remote']>): RemoteMapping {
     return {
         key: remote.key,
         url: remote.url,
@@ -200,15 +270,13 @@ export function countByKind(plan: SyncPlan): {
     unpushed: number;
     errors: number;
 } {
-    const epics = plan.epics;
-    const stories = plan.stories;
-    const all = [...epics, ...stories];
+    const all = [...plan.epics, ...plan.stories, ...plan.subtasks];
     return {
         inSync: all.filter((s) => s.kind === 'in-sync').length,
         localOnly: all.filter((s) => s.kind === 'local-only').length,
         remoteOnly: all.filter((s) => s.kind === 'remote-only').length,
         conflicts: all.filter((s) => s.kind === 'conflict').length,
-        unpushed: plan.unpushedEpicIds.length + plan.unpushedStoryIds.length,
+        unpushed: plan.unpushedEpicIds.length + plan.unpushedStoryIds.length + plan.unpushedSubtaskIds.length,
         errors: plan.fetchErrors.length,
     };
 }

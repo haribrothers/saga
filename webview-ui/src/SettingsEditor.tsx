@@ -487,6 +487,8 @@ function TrackerSection({
                                     value={config.tracker.jira.epic_issue_type} onChange={(v) => setJira({ epic_issue_type: v })} />
                                 <TrackerField label="Story issue type" placeholder="Story"
                                     value={config.tracker.jira.story_issue_type} onChange={(v) => setJira({ story_issue_type: v })} />
+                                <TrackerField label="Subtask issue type" placeholder="Sub-task"
+                                    value={config.tracker.jira.subtask_issue_type} onChange={(v) => setJira({ subtask_issue_type: v })} />
                                 <TrackerField label="Acceptance criteria field ID" placeholder="description"
                                     value={config.tracker.jira.ac_field_id} onChange={(v) => setJira({ ac_field_id: v })} />
                                 <TrackerField

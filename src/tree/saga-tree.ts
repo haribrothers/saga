@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
-import { Epic, Story, StoryStatus } from '../schema';
+import { Epic, Story, StoryStatus, Subtask } from '../schema';
 import { listEpics, listStories } from '../saga-repo';
 import { hashEpic, hashStory } from '../tracker/hash';
 import { readConflicts } from '../tracker/conflicts-store';
 
 // ─── Tree item types ──────────────────────────────────────────────────────────
 
-export type SagaTreeNode = EpicTreeItem | StoryTreeItem;
+export type SagaTreeNode = EpicTreeItem | StoryTreeItem | SubtaskTreeItem;
 
 export class EpicTreeItem extends vscode.TreeItem {
     readonly kind = 'epic' as const;
@@ -36,11 +36,14 @@ export class StoryTreeItem extends vscode.TreeItem {
     readonly kind = 'story' as const;
 
     constructor(readonly story: Story, isConflict = false) {
-        super(story.title, vscode.TreeItemCollapsibleState.None);
+        const hasSubtasks = story.subtasks.length > 0;
+        super(story.title, hasSubtasks ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
         this.id = story.id;
 
         const effectiveStatus = isConflict ? 'conflict' : storyEffectiveStatus(story);
-        this.description = `${story.id}  ${statusBadge(effectiveStatus)}`;
+        const doneCount = story.subtasks.filter((s) => s.done).length;
+        const subtaskLabel = hasSubtasks ? ` · ${doneCount}/${story.subtasks.length} subtasks` : '';
+        this.description = `${story.id}  ${statusBadge(effectiveStatus)}${subtaskLabel}`;
         this.tooltip = `${story.as_a} wants ${story.i_want}`;
         this.contextValue = 'sagaStory';
         this.iconPath = statusIcon(effectiveStatus);
@@ -48,6 +51,25 @@ export class StoryTreeItem extends vscode.TreeItem {
             command: 'saga.openStory',
             title: 'Open Story',
             arguments: [story.id],
+        };
+    }
+}
+
+export class SubtaskTreeItem extends vscode.TreeItem {
+    readonly kind = 'subtask' as const;
+
+    constructor(readonly storyId: string, readonly subtask: Subtask) {
+        super(subtask.title, vscode.TreeItemCollapsibleState.None);
+        this.id = `${storyId}:${subtask.id}`;
+        this.description = subtask.type !== 'task' ? `[${subtask.type}]` : undefined;
+        this.contextValue = 'sagaSubtask';
+        this.iconPath = subtask.done
+            ? new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'))
+            : new vscode.ThemeIcon('circle-large-outline');
+        this.command = {
+            command: 'saga.openStory',
+            title: 'Open Story',
+            arguments: [storyId],
         };
     }
 }
@@ -91,6 +113,10 @@ export class SagaTreeProvider implements vscode.TreeDataProvider<SagaTreeNode> {
             return stories.map((s) => new StoryTreeItem(s, conflicts.has(s.id)));
         }
 
+        if (element.kind === 'story') {
+            return element.story.subtasks.map((s) => new SubtaskTreeItem(element.story.id, s));
+        }
+
         return [];
     }
 
@@ -130,6 +156,11 @@ export class ContextFileItem extends vscode.TreeItem {
         this.iconPath = new vscode.ThemeIcon('file-text');
         this.contextValue = 'sagaContextFile';
         this.tooltip = `Role: ${role}`;
+        this.command = {
+            command: 'saga.openContextFile',
+            title: 'Open Context File',
+            arguments: [filename],
+        };
     }
 }
 

@@ -292,6 +292,7 @@ function draftToStory(d: StoryDraft): Story {
         acceptance_criteria: d.acceptance_criteria,
         estimate: d.estimate,
         labels: d.labels,
+        subtasks: [],
         invest: d.invest,
     };
 }

@@ -1,7 +1,7 @@
-import { Epic, Story } from '../schema';
-import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory } from './adapter';
-import { hashEpic, hashStory } from './hash';
-import { AdoConfig, toAdoEpicPatch, toAdoStoryPatch } from './field-mapping';
+import { Epic, Story, Subtask } from '../schema';
+import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
+import { hashEpic, hashStory, hashComparableSubtask } from './hash';
+import { AdoConfig, toAdoEpicPatch, toAdoStoryPatch, toAdoSubtaskPatch } from './field-mapping';
 
 // ─── ADO work item response shape (minimal) ───────────────────────────────────
 
@@ -108,6 +108,34 @@ export class AdoAdapter implements TrackerAdapter {
         };
     }
 
+    async pushSubtask(subtask: Subtask, storyRemoteKey: string): Promise<PushResult> {
+        const patch = toAdoSubtaskPatch(subtask, this.cfg, Number(storyRemoteKey));
+        // Use the tracker-comparable hash (excludes `type`, which trackers don't
+        // model) so it's directly comparable to hashRemoteSubtask() during sync.
+        const hash = hashComparableSubtask(subtask);
+
+        let workItem: AdoWorkItem;
+
+        if (subtask.remote?.provider === 'ado' && subtask.remote.key) {
+            workItem = await this.updateWorkItem(Number(subtask.remote.key), patch);
+        } else {
+            workItem = await this.createWorkItem('Task', patch);
+        }
+
+        const url = workItem._links?.html?.href ?? this.browseUrl(workItem.id);
+
+        return {
+            remoteRef: {
+                provider: 'ado',
+                key: String(workItem.id),
+                url,
+                last_synced_hash: hash,
+                last_synced_at: new Date().toISOString(),
+            },
+            syncedHash: hash,
+        };
+    }
+
     async deleteEpic(epic: Epic): Promise<void> {
         if (epic.remote?.provider !== 'ado' || !epic.remote.key) {
             throw new TrackerError('Epic has no ADO remote key — nothing to delete.');
@@ -163,6 +191,21 @@ export class AdoAdapter implements TrackerAdapter {
             acceptance_criteria,
             estimate: Number.isFinite(estimate) ? estimate : undefined,
             labels: adoTagsToLabels(String(f['System.Tags'] ?? '')),
+            url: item._links?.html?.href ?? this.browseUrl(Number(remoteKey)),
+        };
+    }
+
+    async fetchSubtask(remoteKey: string): Promise<RemoteSubtask> {
+        const item = await this.get<AdoWorkItem>(
+            `/_apis/wit/workitems/${remoteKey}?fields=System.Title,System.State&api-version=${this.apiVersion}`,
+        );
+        const f = item.fields ?? {};
+        const state = String(f['System.State'] ?? '').toLowerCase();
+        const DONE_STATES = new Set(['closed', 'done', 'resolved', 'completed']);
+        return {
+            key: remoteKey,
+            title: String(f['System.Title'] ?? ''),
+            done: DONE_STATES.has(state),
             url: item._links?.html?.href ?? this.browseUrl(Number(remoteKey)),
         };
     }

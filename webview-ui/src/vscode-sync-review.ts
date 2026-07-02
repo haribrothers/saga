@@ -28,6 +28,14 @@ export interface RemoteStoryView {
     estimate?: number; labels: string[]; url: string;
 }
 
+export interface LocalSubtaskView {
+    id: string; storyId: string; title: string; type: string; done: boolean;
+}
+
+export interface RemoteSubtaskView {
+    key: string; title: string; done: boolean; url: string;
+}
+
 export type EpicSyncStateView =
     | { kind: 'in-sync'; local: LocalEpicView }
     | { kind: 'local-only'; local: LocalEpicView }
@@ -40,11 +48,19 @@ export type StorySyncStateView =
     | { kind: 'remote-only'; local: LocalStoryView; remote: RemoteStoryView }
     | { kind: 'conflict'; local: LocalStoryView; remote: RemoteStoryView };
 
+export type SubtaskSyncStateView =
+    | { kind: 'in-sync'; syncId: string; local: LocalSubtaskView }
+    | { kind: 'local-only'; syncId: string; local: LocalSubtaskView }
+    | { kind: 'remote-only'; syncId: string; local: LocalSubtaskView; remote: RemoteSubtaskView }
+    | { kind: 'conflict'; syncId: string; local: LocalSubtaskView; remote: RemoteSubtaskView };
+
 export interface SyncPlanView {
     epics: EpicSyncStateView[];
     stories: StorySyncStateView[];
+    subtasks: SubtaskSyncStateView[];
     unpushedEpicIds: string[];
     unpushedStoryIds: string[];
+    unpushedSubtaskIds: string[];
     fetchErrors: Array<{ sagaId: string; error: string }>;
 }
 
@@ -56,6 +72,10 @@ export type EpicResolutionView =
 export type StoryResolutionView =
     | { kind: 'push' | 'pull' | 'keep-local' | 'take-remote' | 'skip'; sagaId: string };
 
+/** sagaId here is the syncId (`${storyId}:${subtaskId}`). */
+export type SubtaskResolutionView =
+    | { kind: 'push' | 'pull' | 'keep-local' | 'take-remote' | 'skip'; sagaId: string };
+
 // ─── Message contract ─────────────────────────────────────────────────────────
 
 export type SyncExtensionToWebview =
@@ -65,7 +85,7 @@ export type SyncExtensionToWebview =
 
 export type SyncWebviewToExtension =
     | { type: 'ready' }
-    | { type: 'apply'; epicResolutions: EpicResolutionView[]; storyResolutions: StoryResolutionView[] }
+    | { type: 'apply'; epicResolutions: EpicResolutionView[]; storyResolutions: StoryResolutionView[]; subtaskResolutions: SubtaskResolutionView[] }
     | { type: 'cancel' };
 
 // ─── API ──────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
-import { Epic, Story } from '../schema';
-import { RemoteEpic, RemoteStory } from './adapter';
+import { Epic, Story, Subtask } from '../schema';
+import { RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
 
 /**
  * Compute a stable SHA-256 hash over the canonical fields of an epic or story.
@@ -32,7 +32,37 @@ export function hashStory(story: Story): string {
         acceptance_criteria: story.acceptance_criteria,
         estimate: story.estimate ?? null,
         labels: [...(story.labels ?? [])].sort(),
+        subtasks: (story.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, type: s.type, done: s.done })),
     };
+    return sha256(canonical);
+}
+
+export function hashSubtask(subtask: Subtask): string {
+    const canonical = {
+        id: subtask.id,
+        title: subtask.title,
+        type: subtask.type,
+        done: subtask.done,
+    };
+    return sha256(canonical);
+}
+
+/**
+ * Hash of only the subtask fields that round-trip through a tracker
+ * (title, done — trackers have no concept of Saga's task/test/chore "type").
+ * Used for subtask-level 3-way sync comparison; NOT the same as the hash
+ * stored on the story's `subtasks[]` local_hash surface, which includes `type`.
+ */
+export function hashComparableSubtask(subtask: Pick<Subtask, 'id' | 'title' | 'done'>): string {
+    const canonical = { id: subtask.id, title: subtask.title, done: subtask.done };
+    return sha256(canonical);
+}
+
+/**
+ * Hash a RemoteSubtask using the same canonical field set as hashComparableSubtask().
+ */
+export function hashRemoteSubtask(remote: RemoteSubtask, sagaId: string): string {
+    const canonical = { id: sagaId, title: remote.title, done: remote.done };
     return sha256(canonical);
 }
 
