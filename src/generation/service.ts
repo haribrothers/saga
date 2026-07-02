@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import * as yaml from 'yaml';
 import { z } from 'zod';
 import { LLMProvider, TokenUsage } from '../llm/provider';
@@ -31,7 +32,11 @@ export interface GenerationResult<T> {
 }
 
 export class GenerationService {
-    constructor(private readonly provider: LLMProvider) {}
+    constructor(
+        private readonly provider: LLMProvider,
+        private readonly extensionUri: vscode.Uri,
+        private readonly sagaRoot?: vscode.Uri,
+    ) {}
 
     /**
      * Generate epics from context documents.
@@ -43,7 +48,7 @@ export class GenerationService {
         additionalInstructions = '',
         signal?: AbortSignal,
     ): Promise<GenerationResult<Epic>> {
-        const prompt = buildEpicGenPrompt(context, startId, 2, 8, additionalInstructions);
+        const prompt = await buildEpicGenPrompt(this.extensionUri, this.sagaRoot, context, startId, 2, 8, additionalInstructions);
         const { text, usage } = await this.callWithRetry(prompt, 'epic', signal);
         return { items: this.parseEpicList(text), usage };
     }
@@ -61,7 +66,7 @@ export class GenerationService {
         additionalInstructions = '',
         signal?: AbortSignal,
     ): Promise<GenerationResult<Story>> {
-        const prompt = buildStoryGenPrompt(epic, siblingEpics, context, startId, 3, 8, additionalInstructions);
+        const prompt = await buildStoryGenPrompt(this.extensionUri, this.sagaRoot, epic, siblingEpics, context, startId, 3, 8, additionalInstructions);
         const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
         return { items: this.parseStoryList(text, epic.id), usage };
     }
@@ -86,7 +91,9 @@ export class GenerationService {
     async refineStories(stories: Story[], instructions: string, signal?: AbortSignal): Promise<GenerationResult<Story>> {
         if (stories.length === 0) { return { items: [] }; }
         const epicId = stories[0].epic;
-        const prompt = buildStoryRefinePrompt(
+        const prompt = await buildStoryRefinePrompt(
+            this.extensionUri,
+            this.sagaRoot,
             stories.map((s) => ({
                 id: s.id,
                 title: s.title,

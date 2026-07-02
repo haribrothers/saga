@@ -169,7 +169,7 @@ export class GenerationReviewPanel {
         }
 
         try {
-            const service = new GenerationService(resolved.provider);
+            const service = new GenerationService(resolved.provider, this._opts.extensionUri, getSagaRoot(this._opts.workspaceRoot));
             if (mode === 'epics') {
                 const epics = items as EpicDraft[];
                 const result = await service.refineEpics(epics.map(draftToEpic), instructions);

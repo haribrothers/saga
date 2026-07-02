@@ -55,11 +55,11 @@ function reducer(state: SettingsState, action: Action): SettingsState {
     }
 }
 
-const PROVIDER_IDS: ProviderId[] = ['vscode-lm', 'anthropic', 'gemini', 'openai', 'local'];
+const PROVIDER_IDS: ProviderId[] = ['vscode-lm', 'anthropic', 'gemini', 'openai', 'openrouter', 'local'];
 
 const initial: SettingsState = {
     config: null,
-    providerStatus: { 'vscode-lm': 'unknown', anthropic: 'unknown', gemini: 'unknown', openai: 'unknown', local: 'unknown' },
+    providerStatus: { 'vscode-lm': 'unknown', anthropic: 'unknown', gemini: 'unknown', openai: 'unknown', openrouter: 'unknown', local: 'unknown' },
     secretsPresent: {},
     availableModels: [],
     dirty: false,
@@ -173,6 +173,7 @@ const PROVIDER_META: Record<ProviderId, { label: string; description: string; ha
     anthropic: { label: 'Anthropic (API Key)', description: 'Pay-per-token. Key stored in SecretStorage.', hasKey: true, hasBaseUrl: false },
     gemini: { label: 'Google Gemini (API Key)', description: 'Pay-per-token, free Flash tier available. Key stored in SecretStorage.', hasKey: true, hasBaseUrl: false },
     openai: { label: 'OpenAI (API Key)', description: 'Pay-per-token. Key stored in SecretStorage.', hasKey: true, hasBaseUrl: false },
+    openrouter: { label: 'OpenRouter (API Key)', description: 'Access hundreds of models through one API. Live pricing shown in the model picker. Key stored in SecretStorage.', hasKey: true, hasBaseUrl: false },
     local: { label: 'Local (Ollama / LM Studio)', description: 'Free, fully offline. Needs a running instance at the base URL.', hasKey: false, hasBaseUrl: true },
 };
 

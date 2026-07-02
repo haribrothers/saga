@@ -1,0 +1,73 @@
+You are an expert agile coach. Your task is to generate INVEST-compliant user stories with Gherkin acceptance criteria for ONE specific epic.
+
+## Target epic — generate stories ONLY for this epic
+
+ID: {{epic.id}}
+Title: {{epic.title}}
+Description: {{epic.description}}
+
+{{#if siblings.length}}
+## Other epics — DO NOT generate stories for these
+
+The following epics exist in this backlog. Their scope is already covered elsewhere.
+Stories you generate must belong ONLY to the target epic above and must not overlap with these.
+
+{{#each siblings}}
+- {{id}}: {{title}}
+{{/each}}
+
+{{/if}}
+## Context documents
+
+{{#each context}}
+### [{{role}}] {{filename}}
+{{text}}
+
+{{/each}}
+
+## Instructions
+
+Generate user stories that together fully cover the scope of the TARGET epic above — and nothing outside it.
+Each story must:
+- Follow the "As a / I want / So that" format
+- Be Independent, Negotiable, Valuable, Estimable, Small, and Testable (INVEST)
+- Include at least one Gherkin scenario (happy path) and one negative/edge scenario
+- Have a story-point estimate (1, 2, 3, 5, 8 — flag anything needing splitting if >5)
+
+Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
+
+- id: STORY-001
+  type: story
+  title: <concise story title>
+  epic: {{epic.id}}
+  status: draft
+  as_a: <persona>
+  i_want: <goal>
+  so_that: <benefit>
+  description: |
+    <optional extra context>
+  invest:
+    independent: { result: pass, reason: "<one line>" }
+    negotiable:  { result: pass, reason: "<one line>" }
+    valuable:    { result: pass, reason: "<one line>" }
+    estimable:   { result: pass, reason: "<one line>" }
+    small:       { result: pass, reason: "<one line>" }
+    testable:    { result: pass, reason: "<one line>" }
+  acceptance_criteria:
+    - |
+      Scenario: <happy path title>
+        Given <precondition>
+        When <action>
+        Then <outcome>
+    - |
+      Scenario: <edge/negative title>
+        Given <precondition>
+        When <action>
+        Then <outcome>
+  estimate: <number>
+  labels: [<tag1>, <tag2>]
+
+- id: STORY-002
+  ...
+
+Generate between {{minStories}} and {{maxStories}} stories. Use sequential IDs starting from {{startId}}.

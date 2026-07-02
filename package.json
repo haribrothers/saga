@@ -129,8 +129,24 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "saga.exportBacklog",
+        "title": "Saga: Export Backlog",
+        "category": "Saga",
+        "icon": "$(export)"
+      },
+      {
         "command": "saga.openContextFile",
         "title": "Saga: Open Context File",
+        "category": "Saga"
+      },
+      {
+        "command": "saga.openTemplate",
+        "title": "Saga: Open Template",
+        "category": "Saga"
+      },
+      {
+        "command": "saga.resetTemplate",
+        "title": "Saga: Reset Template",
         "category": "Saga"
       },
       {
@@ -188,6 +204,11 @@
         },
         {
           "command": "saga.generateAgentsMd",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.exportBacklog",
           "when": "view == saga.storiesView",
           "group": "navigation"
         },
@@ -308,6 +329,8 @@
     "@anthropic-ai/sdk": "^0.107.0",
     "@cucumber/gherkin": "^41.0.0",
     "@google/genai": "^2.10.0",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "handlebars": "^4.7.9",
     "mammoth": "^1.12.0",
     "openai": "^6.45.0",

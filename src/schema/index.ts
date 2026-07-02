@@ -137,13 +137,14 @@ export type RoutingValue = string; // "auto" or a model ID
 
 export const ConfigSchema = z.object({
     ai: z.object({
-        default_provider: z.enum(['vscode-lm', 'anthropic', 'gemini', 'openai', 'local']),
+        default_provider: z.enum(['vscode-lm', 'anthropic', 'gemini', 'openai', 'openrouter', 'local']),
         fallback_order: z.array(z.string()).default([]),
         providers: z.object({
             'vscode-lm': z.object({ enabled: z.boolean() }).optional(),
             anthropic: z.object({ enabled: z.boolean(), prompt_caching: z.boolean().optional() }).optional(),
             gemini: z.object({ enabled: z.boolean() }).optional(),
             openai: z.object({ enabled: z.boolean() }).optional(),
+            openrouter: z.object({ enabled: z.boolean() }).optional(),
             local: z.object({
                 enabled: z.boolean(),
                 base_url: z.string().optional(),

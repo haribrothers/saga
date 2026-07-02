@@ -6,12 +6,13 @@ import { LocalLmProvider } from '../llm/local';
 import { AnthropicProvider } from '../llm/anthropic';
 import { GeminiProvider } from '../llm/gemini';
 import { OpenAIByokProvider } from '../llm/openai-byok';
+import { OpenRouterProvider } from '../llm/openrouter';
 import { SecretsManager, SecretKey, SecretKeyName } from '../secrets';
 import { getWebviewHtml } from './html';
 
 // ─── Message contract ─────────────────────────────────────────────────────────
 
-export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'local';
+export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'openrouter' | 'local';
 export type ProviderStatus = 'connected' | 'unreachable' | 'unknown' | 'testing';
 
 /** A model available for selection in the routing picker. */
@@ -29,6 +30,7 @@ export interface SettingsConfigData {
             anthropic: { enabled: boolean; prompt_caching: boolean };
             gemini: { enabled: boolean };
             openai: { enabled: boolean };
+            openrouter: { enabled: boolean };
             local: { enabled: boolean; base_url: string };
         };
         routing: {
@@ -86,6 +88,7 @@ const SECRET_KEYS: Partial<Record<ProviderId, SecretKeyName>> = {
     anthropic: SecretKey.ANTHROPIC_API_KEY,
     gemini: SecretKey.GEMINI_API_KEY,
     openai: SecretKey.OPENAI_API_KEY,
+    openrouter: SecretKey.OPENROUTER_API_KEY,
 };
 
 // Secret storage keys per tracker
@@ -200,6 +203,7 @@ export class SettingsPanel {
                         anthropic: { enabled: raw.ai.providers.anthropic?.enabled ?? false, prompt_caching: raw.ai.providers.anthropic?.prompt_caching ?? true },
                         gemini: { enabled: raw.ai.providers.gemini?.enabled ?? false },
                         openai: { enabled: raw.ai.providers.openai?.enabled ?? false },
+                        openrouter: { enabled: raw.ai.providers.openrouter?.enabled ?? false },
                         local: { enabled: raw.ai.providers.local?.enabled ?? false, base_url: raw.ai.providers.local?.base_url ?? 'http://localhost:11434/v1' },
                     },
                     routing: {
@@ -264,6 +268,7 @@ export class SettingsPanel {
         setIn(doc, ['ai', 'providers', 'anthropic', 'prompt_caching'], data.ai.providers.anthropic.prompt_caching);
         setIn(doc, ['ai', 'providers', 'gemini', 'enabled'], data.ai.providers.gemini.enabled);
         setIn(doc, ['ai', 'providers', 'openai', 'enabled'], data.ai.providers.openai.enabled);
+        setIn(doc, ['ai', 'providers', 'openrouter', 'enabled'], data.ai.providers.openrouter.enabled);
         setIn(doc, ['ai', 'providers', 'local', 'enabled'], data.ai.providers.local.enabled);
         setIn(doc, ['ai', 'providers', 'local', 'base_url'], data.ai.providers.local.base_url);
         setIn(doc, ['ai', 'routing', 'epic_generation'],   data.ai.routing.epic_generation);
@@ -325,6 +330,7 @@ export class SettingsPanel {
             if (id === 'anthropic') { provider = new AnthropicProvider(getKey); }
             else if (id === 'gemini') { provider = new GeminiProvider(getKey); }
             else if (id === 'openai') { provider = new OpenAIByokProvider(getKey); }
+            else if (id === 'openrouter') { provider = new OpenRouterProvider(getKey); }
             else { return { ok: false, message: 'Provider not yet supported.' }; }
             const ok = await provider.isAvailable();
             return ok
@@ -341,6 +347,7 @@ export class SettingsPanel {
             anthropic: 'unknown',
             gemini: 'unknown',
             openai: 'unknown',
+            openrouter: 'unknown',
             local: 'unknown',
         };
         // Only probe enabled providers to keep load fast
@@ -393,6 +400,7 @@ export class SettingsPanel {
             { id: 'anthropic', key: SecretKey.ANTHROPIC_API_KEY },
             { id: 'gemini',    key: SecretKey.GEMINI_API_KEY },
             { id: 'openai',    key: SecretKey.OPENAI_API_KEY },
+            { id: 'openrouter', key: SecretKey.OPENROUTER_API_KEY },
         ];
 
         for (const { id, key } of byokProviders) {
@@ -405,6 +413,7 @@ export class SettingsPanel {
                     let provider;
                     if (id === 'anthropic') { provider = new AnthropicProvider(getKey); }
                     else if (id === 'gemini') { provider = new GeminiProvider(getKey); }
+                    else if (id === 'openrouter') { provider = new OpenRouterProvider(getKey); }
                     else { provider = new OpenAIByokProvider(getKey); }
                     const models = await provider.listModels();
                     for (const m of models) {
@@ -428,6 +437,7 @@ export class SettingsPanel {
             anthropic: 'Anthropic',
             gemini: 'Google Gemini',
             openai: 'OpenAI',
+            openrouter: 'OpenRouter',
         };
 
         const input = await vscode.window.showInputBox({
@@ -554,6 +564,7 @@ function defaultSettingsConfig(): SettingsConfigData {
                 anthropic: { enabled: false, prompt_caching: true },
                 gemini: { enabled: false },
                 openai: { enabled: false },
+                openrouter: { enabled: false },
                 local: { enabled: false, base_url: 'http://localhost:11434/v1' },
             },
             routing: {

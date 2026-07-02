@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { SecretsManager } from './secrets';
 import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
 import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, nextSubtaskId, writePrompt, readContextRegistry, getContextDir } from './saga-repo';
+import { openTemplate, resetTemplate } from './template-manager';
+import { collectBacklog } from './export/collect';
 import { ContextManager } from './context/manager';
 import { detectStack, findRelevantFiles, getDirectoryLayout, getRelevantFileContents } from './context/workspace-scanner';
 import { generateAgentPrompt } from './generation/agent-prompt';
@@ -251,7 +253,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const abort = new AbortController();
                 token.onCancellationRequested(() => abort.abort());
                 try {
-                    const service = new GenerationService(resolved.provider);
+                    const service = new GenerationService(resolved.provider, context.extensionUri, sagaRoot);
                     const startId = await nextEpicId(sagaRoot);
                     result = await service.generateEpics(contextTexts, startId, instructions, abort.signal);
                 } catch (err) {
@@ -276,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext) {
             extensionUri: context.extensionUri,
             onRegenerate: async (signal) => {
                 const r = await resolveProviderFromConfig('epic_generation', root, secrets) ?? resolved;
-                const service = new GenerationService(r.provider);
+                const service = new GenerationService(r.provider, context.extensionUri, sagaRoot);
                 const startId = await nextEpicId(sagaRoot);
                 const fresh = await service.generateEpics(contextTexts, startId, instructions, signal);
                 logTokenUsage('epic_generation', r.modelLabel, fresh.usage);
@@ -347,7 +349,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     const abort = new AbortController();
                     token.onCancellationRequested(() => abort.abort());
                     try {
-                        const service = new GenerationService(resolved.provider);
+                        const service = new GenerationService(resolved.provider, context.extensionUri, sagaRoot);
                         const startId = await nextStoryId(sagaRoot);
                         storyResult = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions, abort.signal);
                     } catch (err) {
@@ -372,7 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 extensionUri: context.extensionUri,
                 onRegenerate: async (signal) => {
                     const r = await resolveProviderFromConfig('story_generation', root, secrets) ?? resolved;
-                    const service = new GenerationService(r.provider);
+                    const service = new GenerationService(r.provider, context.extensionUri, sagaRoot);
                     const startId = await nextStoryId(sagaRoot);
                     const fresh = await service.generateStories(epic, siblingEpics, contextTexts, startId, instructions, signal);
                     logTokenUsage('story_generation', r.modelLabel, fresh.usage);
@@ -1217,6 +1219,8 @@ export async function activate(context: vscode.ExtensionContext) {
                         ]);
                         promptResult = await generateAgentPrompt(
                             resolved.provider,
+                            context.extensionUri,
+                            sagaRoot,
                             story,
                             stack,
                             relevantFiles,
@@ -1374,6 +1378,8 @@ export async function activate(context: vscode.ExtensionContext) {
             ]);
             return generateAgentsMd(
                 resolved.provider,
+                context.extensionUri,
+                sagaRoot,
                 stack,
                 layout,
                 contextTexts,
@@ -1423,6 +1429,82 @@ export async function activate(context: vscode.ExtensionContext) {
                 return { content: fresh.content, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
             },
         });
+    });
+
+    // ── saga.exportBacklog (F32) ──────────────────────────────────────────────
+    const exportBacklogCmd = vscode.commands.registerCommand('saga.exportBacklog', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+
+        const format = await vscode.window.showQuickPick(
+            [
+                { label: 'Markdown', description: '.md', format: 'markdown' as const },
+                { label: 'Word', description: '.docx', format: 'docx' as const },
+                { label: 'Excel', description: '.xlsx', format: 'xlsx' as const },
+            ],
+            { placeHolder: 'Select an export format', title: 'Saga: Export Backlog' },
+        );
+        if (!format) { return; }
+
+        const groups = await collectBacklog(root);
+        if (groups.length === 0) {
+            vscode.window.showWarningMessage('Saga: No epics to export yet.');
+            return;
+        }
+
+        const ext = format.format === 'markdown' ? 'md' : format.format;
+        const filters: Record<string, string[]> = format.format === 'markdown'
+            ? { Markdown: ['md'] }
+            : format.format === 'docx'
+                ? { Word: ['docx'] }
+                : { Excel: ['xlsx'] };
+
+        const saveUri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.joinPath(root, `saga-backlog.${ext}`),
+            filters,
+            title: 'Saga: Export Backlog',
+        });
+        if (!saveUri) { return; }
+
+        await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Saga: Exporting backlog to ${format.label}…`, cancellable: false },
+            async () => {
+                if (format.format === 'markdown') {
+                    const { exportMarkdown } = await import('./export/export-markdown.js');
+                    const content = exportMarkdown(groups);
+                    await vscode.workspace.fs.writeFile(saveUri, Buffer.from(content, 'utf-8'));
+                } else if (format.format === 'docx') {
+                    const { exportDocx } = await import('./export/export-docx.js');
+                    const buffer = await exportDocx(groups);
+                    await vscode.workspace.fs.writeFile(saveUri, buffer);
+                } else {
+                    const { exportXlsx } = await import('./export/export-xlsx.js');
+                    const buffer = await exportXlsx(groups);
+                    await vscode.workspace.fs.writeFile(saveUri, buffer);
+                }
+            },
+        );
+
+        const action = await vscode.window.showInformationMessage(
+            `Saga: Exported backlog to ${saveUri.fsPath}.`,
+            'Open File',
+        );
+        if (action === 'Open File') {
+            await vscode.env.openExternal(saveUri);
+        }
+    });
+
+    // ── saga.openTemplate / saga.resetTemplate (F16) ──────────────────────────
+    const openTemplateCmd = vscode.commands.registerCommand('saga.openTemplate', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        await openTemplate(root, context.extensionUri);
+    });
+
+    const resetTemplateCmd = vscode.commands.registerCommand('saga.resetTemplate', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        await resetTemplate(root);
     });
 
     // ── saga.openContextFile (F30) ────────────────────────────────────────────
@@ -1531,6 +1613,9 @@ export async function activate(context: vscode.ExtensionContext) {
         generateAgentPromptCmd,
         generateSubtasksCmd,
         generateAgentsMdCmd,
+        exportBacklogCmd,
+        openTemplateCmd,
+        resetTemplateCmd,
         openContextFileCmd,
         openSettingsCmd,
         testGenCmd,

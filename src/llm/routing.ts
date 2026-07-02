@@ -5,6 +5,7 @@ import { LocalLmProvider } from './local';
 import { AnthropicProvider } from './anthropic';
 import { GeminiProvider } from './gemini';
 import { OpenAIByokProvider } from './openai-byok';
+import { OpenRouterProvider } from './openrouter';
 import { SecretsManager, SecretKey } from '../secrets';
 import { readConfig, getSagaRoot } from '../saga-repo';
 
@@ -66,8 +67,8 @@ export async function resolveProviderFromConfig(
 
         // If routing is a specific model ID (not "auto"), verify it exists.
         // Skip verification for vscode-lm (family matching, not exact IDs)
-        // and for OpenAI whose listModels() is network-only and may be slow.
-        if (routingValue !== 'auto' && providerId !== 'vscode-lm' && providerId !== 'openai') {
+        // and for OpenAI/OpenRouter whose listModels() is network-only and may be slow.
+        if (routingValue !== 'auto' && providerId !== 'vscode-lm' && providerId !== 'openai' && providerId !== 'openrouter') {
             try {
                 const models: LLMModelInfo[] = await candidate.provider.listModels();
                 const match = models.find((m) => m.id === routingValue);
@@ -126,6 +127,13 @@ function buildProvider(
             const getKey = () => secrets.get(SecretKey.OPENAI_API_KEY);
             const p = new OpenAIByokProvider(getKey, model);
             const label = model ? `${model} (OpenAI)` : 'OpenAI (auto)';
+            return { provider: p, modelLabel: label };
+        }
+        case 'openrouter': {
+            if (!secrets) { return undefined; }
+            const getKey = () => secrets.get(SecretKey.OPENROUTER_API_KEY);
+            const p = new OpenRouterProvider(getKey, model);
+            const label = model ? `${model} (OpenRouter)` : 'OpenRouter (auto)';
             return { provider: p, modelLabel: label };
         }
         default:

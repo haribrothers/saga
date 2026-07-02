@@ -1,49 +1,45 @@
+import * as vscode from 'vscode';
 import Handlebars from 'handlebars';
 import { ContextEntry } from '../schema';
 import type { RelevantFile, StackInfo, DirectoryLayout } from '../context/workspace-scanner';
+import { loadTemplateSource, TemplateName } from './template-loader';
+
+// Register Handlebars helper for joining arrays
+Handlebars.registerHelper('join', (arr: unknown[], sep: string) =>
+    Array.isArray(arr) ? arr.join(sep) : '',
+);
+
+// ─── Compiled-template cache ──────────────────────────────────────────────────
+// Keyed by the raw template source string so an edited .saga/templates/ override
+// is picked up on the next generation run without needing to restart the extension.
+const compiledCache = new Map<string, HandlebarsTemplateDelegate>();
+
+async function compileTemplate(
+    name: TemplateName,
+    extensionUri: vscode.Uri,
+    sagaRoot?: vscode.Uri,
+): Promise<HandlebarsTemplateDelegate> {
+    const source = await loadTemplateSource(name, extensionUri, sagaRoot);
+    const cached = compiledCache.get(source);
+    if (cached) { return cached; }
+    const compiled = Handlebars.compile(source);
+    compiledCache.set(source, compiled);
+    return compiled;
+}
 
 // ─── Epic generation prompt ───────────────────────────────────────────────────
 
-const EPIC_GEN_TEMPLATE = Handlebars.compile(`
-You are an expert agile coach. Your task is to analyse the provided context documents and generate a structured list of epics.
-
-## Context documents
-
-{{#each context}}
-### [{{role}}] {{filename}}
-{{text}}
-
-{{/each}}
-
-## Instructions
-
-Generate a list of epics that fully cover the work described in the context above.
-Each epic should represent a coherent, independently-valuable area of work.
-
-Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
-
-- id: EPIC-001
-  type: epic
-  title: <concise epic title>
-  description: |
-    <2–4 sentence description of what this epic covers and why it is valuable>
-  status: draft
-  labels: [<tag1>, <tag2>]
-
-- id: EPIC-002
-  ...
-
-Generate between {{minEpics}} and {{maxEpics}} epics. Use sequential IDs starting from {{startId}}.
-`.trim());
-
-export function buildEpicGenPrompt(
+export async function buildEpicGenPrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
     context: Array<ContextEntry & { text: string }>,
     startId: string,
     minEpics = 2,
     maxEpics = 8,
     additionalInstructions = '',
-): string {
-    const base = EPIC_GEN_TEMPLATE({ context, startId, minEpics, maxEpics });
+): Promise<string> {
+    const template = await compileTemplate('epic-generation', extensionUri, sagaRoot);
+    const base = template({ context, startId, minEpics, maxEpics });
     return additionalInstructions.trim()
         ? `${base}\n\n## Additional Instructions\n${additionalInstructions.trim()}`
         : base;
@@ -51,83 +47,9 @@ export function buildEpicGenPrompt(
 
 // ─── Story generation prompt ──────────────────────────────────────────────────
 
-const STORY_GEN_TEMPLATE = Handlebars.compile(`
-You are an expert agile coach. Your task is to generate INVEST-compliant user stories with Gherkin acceptance criteria for ONE specific epic.
-
-## Target epic — generate stories ONLY for this epic
-
-ID: {{epic.id}}
-Title: {{epic.title}}
-Description: {{epic.description}}
-
-{{#if siblings.length}}
-## Other epics — DO NOT generate stories for these
-
-The following epics exist in this backlog. Their scope is already covered elsewhere.
-Stories you generate must belong ONLY to the target epic above and must not overlap with these.
-
-{{#each siblings}}
-- {{id}}: {{title}}
-{{/each}}
-
-{{/if}}
-## Context documents
-
-{{#each context}}
-### [{{role}}] {{filename}}
-{{text}}
-
-{{/each}}
-
-## Instructions
-
-Generate user stories that together fully cover the scope of the TARGET epic above — and nothing outside it.
-Each story must:
-- Follow the "As a / I want / So that" format
-- Be Independent, Negotiable, Valuable, Estimable, Small, and Testable (INVEST)
-- Include at least one Gherkin scenario (happy path) and one negative/edge scenario
-- Have a story-point estimate (1, 2, 3, 5, 8 — flag anything needing splitting if >5)
-
-Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
-
-- id: STORY-001
-  type: story
-  title: <concise story title>
-  epic: {{epic.id}}
-  status: draft
-  as_a: <persona>
-  i_want: <goal>
-  so_that: <benefit>
-  description: |
-    <optional extra context>
-  invest:
-    independent: { result: pass, reason: "<one line>" }
-    negotiable:  { result: pass, reason: "<one line>" }
-    valuable:    { result: pass, reason: "<one line>" }
-    estimable:   { result: pass, reason: "<one line>" }
-    small:       { result: pass, reason: "<one line>" }
-    testable:    { result: pass, reason: "<one line>" }
-  acceptance_criteria:
-    - |
-      Scenario: <happy path title>
-        Given <precondition>
-        When <action>
-        Then <outcome>
-    - |
-      Scenario: <edge/negative title>
-        Given <precondition>
-        When <action>
-        Then <outcome>
-  estimate: <number>
-  labels: [<tag1>, <tag2>]
-
-- id: STORY-002
-  ...
-
-Generate between {{minStories}} and {{maxStories}} stories. Use sequential IDs starting from {{startId}}.
-`.trim());
-
-export function buildStoryGenPrompt(
+export async function buildStoryGenPrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
     epic: { id: string; title: string; description?: string },
     siblings: Array<{ id: string; title: string }>,
     context: Array<ContextEntry & { text: string }>,
@@ -135,14 +57,17 @@ export function buildStoryGenPrompt(
     minStories = 3,
     maxStories = 8,
     additionalInstructions = '',
-): string {
-    const base = STORY_GEN_TEMPLATE({ epic, siblings, context, startId, minStories, maxStories });
+): Promise<string> {
+    const template = await compileTemplate('story-generation', extensionUri, sagaRoot);
+    const base = template({ epic, siblings, context, startId, minStories, maxStories });
     return additionalInstructions.trim()
         ? `${base}\n\n## Additional Instructions\n${additionalInstructions.trim()}`
         : base;
 }
 
 // ─── Refine prompts ───────────────────────────────────────────────────────────
+// Epic refine has no bundled override file (P2 — kept as plain string assembly,
+// matching its narrow single-purpose usage in the review panel's "refine all" flow).
 
 export function buildEpicRefinePrompt(
     epics: Array<{ id: string; title: string; description: string }>,
@@ -171,101 +96,37 @@ Return the full refined list in the same YAML format:
   labels: []`;
 }
 
+export async function buildStoryRefinePrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
+    stories: Array<{
+        id: string; title: string; epic: string; as_a: string;
+        i_want: string; so_that: string; acceptance_criteria: string[];
+        invest?: Record<string, { result: string; reason: string }>;
+    }>,
+    instructions: string,
+): Promise<string> {
+    const template = await compileTemplate('story-refine', extensionUri, sagaRoot);
+    const storiesForTemplate = stories.map((s) => ({
+        id: s.id,
+        title: s.title,
+        as_a: s.as_a,
+        i_want: s.i_want,
+        so_that: s.so_that,
+        investIssues: s.invest
+            ? Object.entries(s.invest)
+                .filter(([, v]) => v.result !== 'pass')
+                .map(([k, v]) => `${k}: ${v.result} — ${v.reason}`)
+            : [],
+    }));
+    return template({ stories: storiesForTemplate, instructions });
+}
+
 // ─── Agent prompt generation ──────────────────────────────────────────────────
 
-const AGENT_PROMPT_TEMPLATE = Handlebars.compile(`
-You are an expert software engineer and technical lead. Generate a precise, actionable agent prompt for a coding agent to implement the following user story.
-
-## Story
-
-**ID:** {{story.id}}
-**Title:** {{story.title}}
-**Epic:** {{story.epic}}
-
-**User Story:**
-As a {{story.as_a}}, I want {{story.i_want}}, so that {{story.so_that}}.
-
-{{#if story.description}}
-**Description:**
-{{story.description}}
-
-{{/if}}
-**Acceptance Criteria:**
-{{#each story.acceptance_criteria}}
-{{this}}
-{{/each}}
-
-{{#if story.labels.length}}
-**Labels:** {{join story.labels ", "}}
-{{/if}}
-
-{{#if story.subtasks.length}}
-## Subtasks
-
-{{#each story.subtasks}}
-- [{{#if this.done}}x{{else}} {{/if}}] ({{this.type}}) {{this.title}}
-{{/each}}
-
-{{/if}}
-## Technology Stack
-
-**Project type:** {{stack.projectType}}
-**Languages:** {{join stack.languages ", "}}
-{{#if stack.frameworks.length}}
-**Frameworks/Tools:** {{join stack.frameworks ", "}}
-{{/if}}
-**Top-level directories:** {{join stack.topLevelDirs ", "}}
-
-{{#if relevantFiles.length}}
-## Likely Relevant Files
-
-The following files in the workspace are likely relevant to this story (ranked by heuristic relevance):
-
-{{#each relevantFiles}}
-- {{relativePath}} (score: {{score}})
-{{/each}}
-
-{{/if}}
-{{#if relevantFileContents.length}}
-## Relevant Files — Contents
-
-{{#each relevantFileContents}}
-### {{relativePath}}
-\`\`\`
-{{content}}
-\`\`\`
-
-{{/each}}
-{{/if}}
-{{#if context.length}}
-## Project Context
-
-{{#each context}}
-### [{{role}}] {{filename}}
-{{text}}
-
-{{/each}}
-{{/if}}
-
-## Instructions
-
-Generate a detailed agent prompt (for use with Claude, GPT-4, Cursor, or similar) that:
-1. Describes exactly what needs to be implemented to satisfy this story and all acceptance criteria
-2. Specifies which files to create or modify (using the relevant files list above as hints)
-3. Includes concrete implementation guidance: function signatures, data structures, key logic
-4. Lists the acceptance criteria as a testable checklist
-5. Mentions any edge cases or error handling the agent should address
-6. Is self-contained — the agent should be able to implement it without additional context
-
-Return the agent prompt as a well-structured markdown document starting with a # heading.
-`.trim());
-
-// Register Handlebars helper for joining arrays
-Handlebars.registerHelper('join', (arr: unknown[], sep: string) =>
-    Array.isArray(arr) ? arr.join(sep) : '',
-);
-
-export function buildAgentPromptGenPrompt(
+export async function buildAgentPromptGenPrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
     story: {
         id: string;
         title: string;
@@ -282,132 +143,12 @@ export function buildAgentPromptGenPrompt(
     relevantFiles: RelevantFile[],
     context: Array<ContextEntry & { text: string }>,
     relevantFileContents?: Array<{ relativePath: string; content: string }>,
-): string {
-    return AGENT_PROMPT_TEMPLATE({ story, stack, relevantFiles, context, relevantFileContents });
-}
-
-export function buildStoryRefinePrompt(
-    stories: Array<{
-        id: string; title: string; epic: string; as_a: string;
-        i_want: string; so_that: string; acceptance_criteria: string[];
-        invest?: Record<string, { result: string; reason: string }>;
-    }>,
-    instructions: string,
-): string {
-    const storyList = stories.map((s) => {
-        const investIssues = s.invest
-            ? Object.entries(s.invest)
-                .filter(([, v]) => v.result !== 'pass')
-                .map(([k, v]) => `  - ${k}: ${v.result} — ${v.reason}`)
-                .join('\n')
-            : '';
-        return `- id: ${s.id}
-  title: ${s.title}
-  as_a: ${s.as_a}
-  i_want: ${s.i_want}
-  so_that: ${s.so_that}${investIssues ? `\n  invest_issues:\n${investIssues}` : ''}`;
-    }).join('\n');
-
-    return `You are an expert agile coach. Refine the following user stories based on the instructions.
-Preserve each story's ID and epic linkage. Fix any INVEST issues listed. Return ONLY a YAML list — no prose, no markdown fences.
-
-## Current Stories
-${storyList}
-
-## Refinement Instructions
-${instructions}
-
-Return the full refined list. Each story must keep its original id and epic value.
-DO NOT include an invest block — INVEST scoring is handled separately.
-Use this exact format:
-
-- id: STORY-001
-  type: story
-  title: <title>
-  epic: <epic-id>
-  status: draft
-  as_a: <persona>
-  i_want: <goal>
-  so_that: <benefit>
-  acceptance_criteria:
-    - |
-      Scenario: <title>
-        Given <precondition>
-        When <action>
-        Then <outcome>
-  estimate: <number>
-  labels: []`;
+): Promise<string> {
+    const template = await compileTemplate('agent-prompt', extensionUri, sagaRoot);
+    return template({ story, stack, relevantFiles, context, relevantFileContents });
 }
 
 // ─── AGENTS.md generation ─────────────────────────────────────────────────────
-
-const AGENTS_MD_TEMPLATE = Handlebars.compile(`
-You are an expert software engineer writing an AGENTS.md file for a software project.
-AGENTS.md is a document that helps AI coding agents (Claude Code, Copilot, Cursor, Gemini CLI, etc.)
-understand the project structure, conventions, and how to work effectively in this codebase.
-
-## Project Information
-
-**Project type:** {{stack.projectType}}
-**Languages:** {{join stack.languages ", "}}
-{{#if stack.frameworks.length}}
-**Frameworks/Tools:** {{join stack.frameworks ", "}}
-{{/if}}
-
-## Directory Layout
-
-\`\`\`
-{{#each layout.topLevel}}
-{{this}}
-{{/each}}
-\`\`\`
-
-{{#each layout.secondLevel}}
-\`\`\`
-{{@key}}/
-{{#each this}}
-  {{this}}
-{{/each}}
-\`\`\`
-{{/each}}
-
-{{#if existingAgentsMd}}
-## Existing AGENTS.md (for reference / continuity)
-
-{{existingAgentsMd}}
-
-{{/if}}
-{{#if context.length}}
-## Project Context
-
-{{#each context}}
-### [{{role}}] {{filename}}
-{{text}}
-
-{{/each}}
-{{/if}}
-
-## Instructions
-
-Generate a comprehensive AGENTS.md file for this project. The file should:
-
-1. **Project overview** — 2–3 sentences describing what the project does and its main purpose
-2. **Architecture** — key modules, layers, or packages and their responsibilities
-3. **Build & run commands** — how to build, test, lint, and start the project (infer from the stack)
-4. **Code conventions** — naming, file organisation, import style, error handling patterns
-5. **Key constraints** — anything agents must never do (e.g. "never commit secrets", "always run tests before push")
-6. **Working with this codebase** — tips for navigating, common gotchas, non-obvious patterns
-7. **Testing** — how tests are structured and how to run them
-
-Keep it concise and actionable. Write in second person ("you should", "run X").
-Use markdown with clear headings. Do not include placeholder text — only include sections you can fill in meaningfully based on the project information above.
-
-{{#if existingAgentsMd}}
-Incorporate relevant content from the existing AGENTS.md above, updating or expanding it as appropriate.
-{{/if}}
-
-Return the full AGENTS.md content starting with # AGENTS.md or a descriptive title heading.
-`.trim());
 
 export interface AgentsMdInput {
     stack: StackInfo;
@@ -416,6 +157,11 @@ export interface AgentsMdInput {
     context: Array<ContextEntry & { text: string }>;
 }
 
-export function buildAgentsMdPrompt(input: AgentsMdInput): string {
-    return AGENTS_MD_TEMPLATE(input);
+export async function buildAgentsMdPrompt(
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
+    input: AgentsMdInput,
+): Promise<string> {
+    const template = await compileTemplate('agents-md', extensionUri, sagaRoot);
+    return template(input);
 }

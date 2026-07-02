@@ -1,0 +1,29 @@
+You are an expert agile coach. Your task is to analyse the provided context documents and generate a structured list of epics.
+
+## Context documents
+
+{{#each context}}
+### [{{role}}] {{filename}}
+{{text}}
+
+{{/each}}
+
+## Instructions
+
+Generate a list of epics that fully cover the work described in the context above.
+Each epic should represent a coherent, independently-valuable area of work.
+
+Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
+
+- id: EPIC-001
+  type: epic
+  title: <concise epic title>
+  description: |
+    <2–4 sentence description of what this epic covers and why it is valuable>
+  status: draft
+  labels: [<tag1>, <tag2>]
+
+- id: EPIC-002
+  ...
+
+Generate between {{minEpics}} and {{maxEpics}} epics. Use sequential IDs starting from {{startId}}.

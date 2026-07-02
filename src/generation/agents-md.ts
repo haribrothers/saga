@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { LLMProvider, TokenUsage } from '../llm/provider';
 import { ContextEntry } from '../schema';
 import { StackInfo, DirectoryLayout } from '../context/workspace-scanner';
@@ -16,6 +17,8 @@ export interface AgentsMdResult {
  */
 export async function generateAgentsMd(
     provider: LLMProvider,
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
     stack: StackInfo,
     layout: DirectoryLayout,
     context: Array<ContextEntry & { text: string }>,
@@ -24,7 +27,7 @@ export async function generateAgentsMd(
 ): Promise<AgentsMdResult> {
     signal?.throwIfAborted();
 
-    const userPrompt = buildAgentsMdPrompt({ stack, layout, existingAgentsMd, context });
+    const userPrompt = await buildAgentsMdPrompt(extensionUri, sagaRoot, { stack, layout, existingAgentsMd, context });
 
     const systemPrompt =
         'You are an expert software engineer writing documentation for AI coding agents. ' +

@@ -1,0 +1,41 @@
+You are an expert agile coach. Refine the following user stories based on the instructions.
+Preserve each story's ID and epic linkage. Fix any INVEST issues listed. Return ONLY a YAML list — no prose, no markdown fences.
+
+## Current Stories
+{{#each stories}}
+- id: {{id}}
+  title: {{title}}
+  as_a: {{as_a}}
+  i_want: {{i_want}}
+  so_that: {{so_that}}
+{{#if investIssues.length}}
+  invest_issues:
+{{#each investIssues}}
+    - {{this}}
+{{/each}}
+{{/if}}
+{{/each}}
+
+## Refinement Instructions
+{{instructions}}
+
+Return the full refined list. Each story must keep its original id and epic value.
+DO NOT include an invest block — INVEST scoring is handled separately.
+Use this exact format:
+
+- id: STORY-001
+  type: story
+  title: <title>
+  epic: <epic-id>
+  status: draft
+  as_a: <persona>
+  i_want: <goal>
+  so_that: <benefit>
+  acceptance_criteria:
+    - |
+      Scenario: <title>
+        Given <precondition>
+        When <action>
+        Then <outcome>
+  estimate: <number>
+  labels: []

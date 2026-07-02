@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { LLMProvider, TokenUsage } from '../llm/provider';
 import { Story, ContextEntry } from '../schema';
 import { StackInfo, RelevantFile, RelevantFileContent } from '../context/workspace-scanner';
@@ -17,6 +18,8 @@ export interface AgentPromptResult {
  */
 export async function generateAgentPrompt(
     provider: LLMProvider,
+    extensionUri: vscode.Uri,
+    sagaRoot: vscode.Uri | undefined,
     story: Story,
     stack: StackInfo,
     relevantFiles: RelevantFile[],
@@ -26,7 +29,7 @@ export async function generateAgentPrompt(
 ): Promise<AgentPromptResult> {
     signal?.throwIfAborted();
 
-    const userPrompt = buildAgentPromptGenPrompt(story, stack, relevantFiles, context, relevantFileContents);
+    const userPrompt = await buildAgentPromptGenPrompt(extensionUri, sagaRoot, story, stack, relevantFiles, context, relevantFileContents);
 
     const systemPrompt =
         'You are an expert software engineer. Generate a detailed, self-contained agent prompt ' +

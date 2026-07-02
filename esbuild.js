@@ -1,7 +1,31 @@
 const esbuild = require("esbuild");
+const fs = require("fs");
+const path = require("path");
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+/** Copies the bundled default .hbs templates into dist/ so they ship in the packaged extension. */
+function copyTemplates() {
+	const srcDir = path.join(__dirname, 'src', 'generation', 'templates');
+	const destDir = path.join(__dirname, 'dist', 'generation', 'templates');
+	fs.mkdirSync(destDir, { recursive: true });
+	for (const file of fs.readdirSync(srcDir)) {
+		if (file.endsWith('.hbs')) {
+			fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+		}
+	}
+}
+
+/**
+ * @type {import('esbuild').Plugin}
+ */
+const copyTemplatesPlugin = {
+	name: 'copy-templates',
+	setup(build) {
+		build.onEnd(() => copyTemplates());
+	},
+};
 
 /**
  * @type {import('esbuild').Plugin}
@@ -38,6 +62,7 @@ async function main() {
 		external: ['vscode'],
 		logLevel: 'silent',
 		plugins: [
+			copyTemplatesPlugin,
 			/* add to the end of plugins array */
 			esbuildProblemMatcherPlugin,
 		],

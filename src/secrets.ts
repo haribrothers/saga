@@ -4,6 +4,7 @@ export const SecretKey = {
     ANTHROPIC_API_KEY: 'saga.anthropic.apiKey',
     GEMINI_API_KEY: 'saga.gemini.apiKey',
     OPENAI_API_KEY: 'saga.openai.apiKey',
+    OPENROUTER_API_KEY: 'saga.openrouter.apiKey',
     JIRA_API_TOKEN: 'saga.jira.apiToken',
     ADO_PAT: 'saga.ado.pat',
 } as const;

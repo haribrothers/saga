@@ -11,7 +11,7 @@ export default vscodeApi;
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
-export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'local';
+export type ProviderId = 'vscode-lm' | 'anthropic' | 'gemini' | 'openai' | 'openrouter' | 'local';
 export type ProviderStatus = 'connected' | 'unreachable' | 'unknown' | 'testing';
 
 export interface ModelOption {
@@ -28,6 +28,7 @@ export interface SettingsConfigData {
             anthropic: { enabled: boolean; prompt_caching: boolean };
             gemini: { enabled: boolean };
             openai: { enabled: boolean };
+            openrouter: { enabled: boolean };
             local: { enabled: boolean; base_url: string };
         };
         routing: {

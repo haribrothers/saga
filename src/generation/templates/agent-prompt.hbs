@@ -1,0 +1,84 @@
+You are an expert software engineer and technical lead. Generate a precise, actionable agent prompt for a coding agent to implement the following user story.
+
+## Story
+
+**ID:** {{story.id}}
+**Title:** {{story.title}}
+**Epic:** {{story.epic}}
+
+**User Story:**
+As a {{story.as_a}}, I want {{story.i_want}}, so that {{story.so_that}}.
+
+{{#if story.description}}
+**Description:**
+{{story.description}}
+
+{{/if}}
+**Acceptance Criteria:**
+{{#each story.acceptance_criteria}}
+{{this}}
+{{/each}}
+
+{{#if story.labels.length}}
+**Labels:** {{join story.labels ", "}}
+{{/if}}
+
+{{#if story.subtasks.length}}
+## Subtasks
+
+{{#each story.subtasks}}
+- [{{#if this.done}}x{{else}} {{/if}}] ({{this.type}}) {{this.title}}
+{{/each}}
+
+{{/if}}
+## Technology Stack
+
+**Project type:** {{stack.projectType}}
+**Languages:** {{join stack.languages ", "}}
+{{#if stack.frameworks.length}}
+**Frameworks/Tools:** {{join stack.frameworks ", "}}
+{{/if}}
+**Top-level directories:** {{join stack.topLevelDirs ", "}}
+
+{{#if relevantFiles.length}}
+## Likely Relevant Files
+
+The following files in the workspace are likely relevant to this story (ranked by heuristic relevance):
+
+{{#each relevantFiles}}
+- {{relativePath}} (score: {{score}})
+{{/each}}
+
+{{/if}}
+{{#if relevantFileContents.length}}
+## Relevant Files — Contents
+
+{{#each relevantFileContents}}
+### {{relativePath}}
+```
+{{content}}
+```
+
+{{/each}}
+{{/if}}
+{{#if context.length}}
+## Project Context
+
+{{#each context}}
+### [{{role}}] {{filename}}
+{{text}}
+
+{{/each}}
+{{/if}}
+
+## Instructions
+
+Generate a detailed agent prompt (for use with Claude, GPT-4, Cursor, or similar) that:
+1. Describes exactly what needs to be implemented to satisfy this story and all acceptance criteria
+2. Specifies which files to create or modify (using the relevant files list above as hints)
+3. Includes concrete implementation guidance: function signatures, data structures, key logic
+4. Lists the acceptance criteria as a testable checklist
+5. Mentions any edge cases or error handling the agent should address
+6. Is self-contained — the agent should be able to implement it without additional context
+
+Return the agent prompt as a well-structured markdown document starting with a # heading.
