@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { ContextEntry } from '../schema';
-import type { RelevantFile, StackInfo } from '../context/workspace-scanner';
+import type { RelevantFile, StackInfo, DirectoryLayout } from '../context/workspace-scanner';
 
 // ─── Epic generation prompt ───────────────────────────────────────────────────
 
@@ -316,4 +316,85 @@ Use this exact format:
         Then <outcome>
   estimate: <number>
   labels: []`;
+}
+
+// ─── AGENTS.md generation ─────────────────────────────────────────────────────
+
+const AGENTS_MD_TEMPLATE = Handlebars.compile(`
+You are an expert software engineer writing an AGENTS.md file for a software project.
+AGENTS.md is a document that helps AI coding agents (Claude Code, Copilot, Cursor, Gemini CLI, etc.)
+understand the project structure, conventions, and how to work effectively in this codebase.
+
+## Project Information
+
+**Project type:** {{stack.projectType}}
+**Languages:** {{join stack.languages ", "}}
+{{#if stack.frameworks.length}}
+**Frameworks/Tools:** {{join stack.frameworks ", "}}
+{{/if}}
+
+## Directory Layout
+
+\`\`\`
+{{#each layout.topLevel}}
+{{this}}
+{{/each}}
+\`\`\`
+
+{{#each layout.secondLevel}}
+\`\`\`
+{{@key}}/
+{{#each this}}
+  {{this}}
+{{/each}}
+\`\`\`
+{{/each}}
+
+{{#if existingAgentsMd}}
+## Existing AGENTS.md (for reference / continuity)
+
+{{existingAgentsMd}}
+
+{{/if}}
+{{#if context.length}}
+## Project Context
+
+{{#each context}}
+### [{{role}}] {{filename}}
+{{text}}
+
+{{/each}}
+{{/if}}
+
+## Instructions
+
+Generate a comprehensive AGENTS.md file for this project. The file should:
+
+1. **Project overview** — 2–3 sentences describing what the project does and its main purpose
+2. **Architecture** — key modules, layers, or packages and their responsibilities
+3. **Build & run commands** — how to build, test, lint, and start the project (infer from the stack)
+4. **Code conventions** — naming, file organisation, import style, error handling patterns
+5. **Key constraints** — anything agents must never do (e.g. "never commit secrets", "always run tests before push")
+6. **Working with this codebase** — tips for navigating, common gotchas, non-obvious patterns
+7. **Testing** — how tests are structured and how to run them
+
+Keep it concise and actionable. Write in second person ("you should", "run X").
+Use markdown with clear headings. Do not include placeholder text — only include sections you can fill in meaningfully based on the project information above.
+
+{{#if existingAgentsMd}}
+Incorporate relevant content from the existing AGENTS.md above, updating or expanding it as appropriate.
+{{/if}}
+
+Return the full AGENTS.md content starting with # AGENTS.md or a descriptive title heading.
+`.trim());
+
+export interface AgentsMdInput {
+    stack: StackInfo;
+    layout: DirectoryLayout;
+    existingAgentsMd?: string;
+    context: Array<ContextEntry & { text: string }>;
+}
+
+export function buildAgentsMdPrompt(input: AgentsMdInput): string {
+    return AGENTS_MD_TEMPLATE(input);
 }

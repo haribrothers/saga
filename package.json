@@ -117,6 +117,12 @@
         "icon": "$(robot)"
       },
       {
+        "command": "saga.generateAgentsMd",
+        "title": "Saga: Generate AGENTS.md",
+        "category": "Saga",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "saga.testGeneration",
         "title": "Saga: Test Generation",
         "category": "Saga"
@@ -166,6 +172,11 @@
         },
         {
           "command": "saga.generateEpics",
+          "when": "view == saga.storiesView",
+          "group": "navigation"
+        },
+        {
+          "command": "saga.generateAgentsMd",
           "when": "view == saga.storiesView",
           "group": "navigation"
         },

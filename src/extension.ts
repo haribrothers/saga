@@ -3,9 +3,12 @@ import { SecretsManager } from './secrets';
 import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
 import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, writePrompt } from './saga-repo';
 import { ContextManager } from './context/manager';
-import { detectStack, findRelevantFiles } from './context/workspace-scanner';
+import { detectStack, findRelevantFiles, getDirectoryLayout } from './context/workspace-scanner';
 import { generateAgentPrompt } from './generation/agent-prompt';
+import { generateAgentsMd } from './generation/agents-md';
+import { readLock, writeLock, sha256 } from './agents-md-lock';
 import { AgentPromptPanel } from './webview/agent-prompt-panel';
+import { AgentsMdPanel } from './webview/agents-md-panel';
 import { GenerationService } from './generation/service';
 import { InvestValidator } from './invest/validator';
 import { SagaTreeProvider, ContextTreeProvider } from './tree/saga-tree';
@@ -1171,6 +1174,105 @@ export async function activate(context: vscode.ExtensionContext) {
         },
     );
 
+    // ── saga.generateAgentsMd (F13) ───────────────────────────────────────────
+    const generateAgentsMdCmd = vscode.commands.registerCommand('saga.generateAgentsMd', async () => {
+        const root = requireRoot();
+        if (!root || !(await requireInit(root))) { return; }
+        const sagaRoot = getSagaRoot(root);
+
+        // Check if AGENTS.md already exists and warn if it's been hand-edited
+        const agentsMdUri = vscode.Uri.joinPath(root, 'AGENTS.md');
+        let existingContent: string | undefined;
+        let hasExisting = false;
+        try {
+            const bytes = await vscode.workspace.fs.readFile(agentsMdUri);
+            existingContent = Buffer.from(bytes).toString('utf-8');
+            hasExisting = true;
+
+            const lockHash = await readLock(sagaRoot);
+            const currentHash = sha256(existingContent);
+            if (lockHash && lockHash !== currentHash) {
+                const proceed = await vscode.window.showWarningMessage(
+                    'AGENTS.md has been hand-edited since last generation. Regenerating will overwrite your changes.',
+                    { modal: true },
+                    'Regenerate Anyway',
+                );
+                if (proceed !== 'Regenerate Anyway') { return; }
+            }
+        } catch {
+            // AGENTS.md doesn't exist yet — no warning needed
+        }
+
+        const resolved = await resolveProviderFromConfig('agents_md', root, secrets);
+        if (!resolved) {
+            vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
+            return;
+        }
+
+        const manager = new ContextManager(sagaRoot);
+        const contextTexts = await manager.loadContextTexts();
+
+        let genResult: Awaited<ReturnType<typeof generateAgentsMd>> | undefined;
+        let cancelled = false;
+
+        const runGeneration = async (signal: AbortSignal) => {
+            const [stack, layout] = await Promise.all([
+                detectStack(root),
+                getDirectoryLayout(root),
+            ]);
+            return generateAgentsMd(
+                resolved.provider,
+                stack,
+                layout,
+                contextTexts,
+                existingContent,
+                signal,
+            );
+        };
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Saga: Generating AGENTS.md via ${resolved.modelLabel}…`,
+                cancellable: true,
+            },
+            async (_progress, token) => {
+                const abort = new AbortController();
+                token.onCancellationRequested(() => abort.abort());
+                try {
+                    genResult = await runGeneration(abort.signal);
+                } catch (err) {
+                    if (isAbortError(err)) { cancelled = true; }
+                    else { throw err; }
+                }
+            },
+        );
+
+        if (cancelled) { vscode.window.showInformationMessage('Saga: AGENTS.md generation cancelled.'); return; }
+        if (!genResult) { return; }
+
+        logTokenUsage('agents_md', resolved.modelLabel, genResult.usage);
+
+        await AgentsMdPanel.open({
+            content: genResult.content,
+            modelLabel: resolved.modelLabel,
+            tokenUsage: genResult.usage,
+            hasExisting,
+            extensionUri: context.extensionUri,
+            onAccept: async (content) => {
+                await vscode.workspace.fs.writeFile(agentsMdUri, Buffer.from(content, 'utf-8'));
+                await writeLock(sagaRoot, content);
+                vscode.window.showInformationMessage('AGENTS.md saved to workspace root.');
+            },
+            onRegenerate: async (signal) => {
+                const r = await resolveProviderFromConfig('agents_md', root, secrets) ?? resolved;
+                const fresh = await runGeneration(signal);
+                logTokenUsage('agents_md', r.modelLabel, fresh.usage);
+                return { content: fresh.content, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
+            },
+        });
+    });
+
     // ── saga.openSettings ──────────────────────────────────────────────────────
     const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
         const root = requireRoot();
@@ -1226,6 +1328,7 @@ export async function activate(context: vscode.ExtensionContext) {
         pushAllCmd,
         syncCmd,
         generateAgentPromptCmd,
+        generateAgentsMdCmd,
         openSettingsCmd,
         testGenCmd,
     );

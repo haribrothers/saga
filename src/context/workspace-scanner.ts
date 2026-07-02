@@ -162,6 +162,54 @@ export async function findRelevantFiles(
     return scored.slice(0, MAX_RESULTS);
 }
 
+// ─── Directory layout ─────────────────────────────────────────────────────────
+
+export interface DirectoryLayout {
+    /** Top-level entries (files + dirs, excluding hidden and excluded dirs). */
+    topLevel: string[];
+    /** Second-level entries per top-level directory. Key = dir name. */
+    secondLevel: Record<string, string[]>;
+}
+
+/**
+ * Returns the top-two-level directory structure of the workspace, filtered to
+ * exclude hidden entries and known noise directories.
+ */
+export async function getDirectoryLayout(workspaceRoot: vscode.Uri): Promise<DirectoryLayout> {
+    const topLevel: string[] = [];
+    const secondLevel: Record<string, string[]> = {};
+
+    let entries: [string, vscode.FileType][];
+    try {
+        entries = await vscode.workspace.fs.readDirectory(workspaceRoot);
+    } catch {
+        return { topLevel, secondLevel };
+    }
+
+    for (const [name, type] of entries) {
+        if (name.startsWith('.')) { continue; }
+        if (EXCLUDED_DIRS.has(name)) { continue; }
+        topLevel.push(type === vscode.FileType.Directory ? `${name}/` : name);
+
+        if (type === vscode.FileType.Directory) {
+            try {
+                const children = await vscode.workspace.fs.readDirectory(
+                    vscode.Uri.joinPath(workspaceRoot, name),
+                );
+                secondLevel[name] = children
+                    .filter(([n, t]) => !n.startsWith('.') && !(t === vscode.FileType.Directory && EXCLUDED_DIRS.has(n)))
+                    .map(([n, t]) => (t === vscode.FileType.Directory ? `${n}/` : n))
+                    .sort();
+            } catch {
+                secondLevel[name] = [];
+            }
+        }
+    }
+
+    topLevel.sort();
+    return { topLevel, secondLevel };
+}
+
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 async function collectFiles(
