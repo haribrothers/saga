@@ -111,6 +111,12 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "saga.generateAgentPrompt",
+        "title": "Saga: Generate Agent Prompt",
+        "category": "Saga",
+        "icon": "$(robot)"
+      },
+      {
         "command": "saga.testGeneration",
         "title": "Saga: Test Generation",
         "category": "Saga"
@@ -207,6 +213,11 @@
         },
         {
           "command": "saga.pushStory",
+          "when": "viewItem == sagaStory",
+          "group": "inline"
+        },
+        {
+          "command": "saga.generateAgentPrompt",
           "when": "viewItem == sagaStory",
           "group": "inline"
         },

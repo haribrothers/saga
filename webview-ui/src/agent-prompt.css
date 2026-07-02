@@ -1,0 +1,157 @@
+/* Agent Prompt Panel */
+
+.ap-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 0;
+    box-sizing: border-box;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+.ap-loading {
+    padding: 2rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* ── Header ── */
+
+.ap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.ap-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.ap-story-id {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.85em;
+    color: var(--vscode-textLink-foreground);
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.ap-story-title {
+    color: var(--vscode-foreground);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ap-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.ap-model-label {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+}
+
+.ap-tokens {
+    font-size: 0.75em;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+/* ── Error ── */
+
+.ap-error {
+    margin: 8px 16px;
+    padding: 8px 12px;
+    background: var(--vscode-inputValidation-errorBackground);
+    border: 1px solid var(--vscode-inputValidation-errorBorder);
+    border-radius: 3px;
+    font-size: 0.875em;
+}
+
+/* ── Editor ── */
+
+.ap-editor-wrap {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    padding: 8px 16px;
+}
+
+.ap-editor {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 3px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.5;
+    padding: 10px 12px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.ap-editor:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+/* ── Footer ── */
+
+.ap-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+
+.ap-btn {
+    padding: 5px 14px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-size: var(--vscode-font-size);
+    font-family: var(--vscode-font-family);
+    white-space: nowrap;
+}
+
+.ap-btn-secondary {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.ap-btn-secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.ap-btn-primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.ap-btn-primary:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.ap-btn-dirty {
+    outline: 1px solid var(--vscode-focusBorder);
+}

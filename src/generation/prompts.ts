@@ -1,5 +1,6 @@
 import Handlebars from 'handlebars';
 import { ContextEntry } from '../schema';
+import type { RelevantFile, StackInfo } from '../context/workspace-scanner';
 
 // ─── Epic generation prompt ───────────────────────────────────────────────────
 
@@ -168,6 +169,100 @@ Return the full refined list in the same YAML format:
     <description>
   status: draft
   labels: []`;
+}
+
+// ─── Agent prompt generation ──────────────────────────────────────────────────
+
+const AGENT_PROMPT_TEMPLATE = Handlebars.compile(`
+You are an expert software engineer and technical lead. Generate a precise, actionable agent prompt for a coding agent to implement the following user story.
+
+## Story
+
+**ID:** {{story.id}}
+**Title:** {{story.title}}
+**Epic:** {{story.epic}}
+
+**User Story:**
+As a {{story.as_a}}, I want {{story.i_want}}, so that {{story.so_that}}.
+
+{{#if story.description}}
+**Description:**
+{{story.description}}
+
+{{/if}}
+**Acceptance Criteria:**
+{{#each story.acceptance_criteria}}
+{{this}}
+{{/each}}
+
+{{#if story.labels.length}}
+**Labels:** {{join story.labels ", "}}
+{{/if}}
+
+## Technology Stack
+
+**Project type:** {{stack.projectType}}
+**Languages:** {{join stack.languages ", "}}
+{{#if stack.frameworks.length}}
+**Frameworks/Tools:** {{join stack.frameworks ", "}}
+{{/if}}
+**Top-level directories:** {{join stack.topLevelDirs ", "}}
+
+{{#if relevantFiles.length}}
+## Likely Relevant Files
+
+The following files in the workspace are likely relevant to this story (ranked by heuristic relevance):
+
+{{#each relevantFiles}}
+- {{relativePath}} (score: {{score}})
+{{/each}}
+
+{{/if}}
+{{#if context.length}}
+## Project Context
+
+{{#each context}}
+### [{{role}}] {{filename}}
+{{text}}
+
+{{/each}}
+{{/if}}
+
+## Instructions
+
+Generate a detailed agent prompt (for use with Claude, GPT-4, Cursor, or similar) that:
+1. Describes exactly what needs to be implemented to satisfy this story and all acceptance criteria
+2. Specifies which files to create or modify (using the relevant files list above as hints)
+3. Includes concrete implementation guidance: function signatures, data structures, key logic
+4. Lists the acceptance criteria as a testable checklist
+5. Mentions any edge cases or error handling the agent should address
+6. Is self-contained — the agent should be able to implement it without additional context
+
+Return the agent prompt as a well-structured markdown document starting with a # heading.
+`.trim());
+
+// Register Handlebars helper for joining arrays
+Handlebars.registerHelper('join', (arr: unknown[], sep: string) =>
+    Array.isArray(arr) ? arr.join(sep) : '',
+);
+
+export function buildAgentPromptGenPrompt(
+    story: {
+        id: string;
+        title: string;
+        epic: string;
+        as_a: string;
+        i_want: string;
+        so_that: string;
+        description?: string;
+        acceptance_criteria: string[];
+        labels?: string[];
+    },
+    stack: StackInfo,
+    relevantFiles: RelevantFile[],
+    context: Array<ContextEntry & { text: string }>,
+): string {
+    return AGENT_PROMPT_TEMPLATE({ story, stack, relevantFiles, context });
 }
 
 export function buildStoryRefinePrompt(

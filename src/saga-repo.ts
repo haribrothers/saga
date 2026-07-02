@@ -169,3 +169,34 @@ export async function writeContextRegistry(
 export function getContextDir(sagaRoot: vscode.Uri): vscode.Uri {
     return contextDir(sagaRoot);
 }
+
+// ─── Agent prompts ────────────────────────────────────────────────────────────
+
+function promptsDir(sagaRoot: vscode.Uri) {
+    return vscode.Uri.joinPath(sagaRoot, 'prompts');
+}
+
+/**
+ * Write an agent prompt to .saga/prompts/<storyId>.prompt.md.
+ * Creates the prompts/ directory if it doesn't exist yet.
+ */
+export async function writePrompt(sagaRoot: vscode.Uri, storyId: string, content: string): Promise<vscode.Uri> {
+    const dir = promptsDir(sagaRoot);
+    try { await vscode.workspace.fs.createDirectory(dir); } catch { /* already exists */ }
+    const uri = vscode.Uri.joinPath(dir, `${storyId}.prompt.md`);
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+    return uri;
+}
+
+/**
+ * Read an existing agent prompt. Returns undefined if the file doesn't exist.
+ */
+export async function readPrompt(sagaRoot: vscode.Uri, storyId: string): Promise<string | undefined> {
+    const uri = vscode.Uri.joinPath(promptsDir(sagaRoot), `${storyId}.prompt.md`);
+    try {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        return Buffer.from(bytes).toString('utf-8');
+    } catch {
+        return undefined;
+    }
+}

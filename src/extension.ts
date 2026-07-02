@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
 import { SecretsManager } from './secrets';
 import { initSagaFolder, getWorkspaceRoot, isSagaInitialized } from './saga-fs';
-import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId } from './saga-repo';
+import { getSagaRoot, listEpics, listStories, readEpic, readStory, writeEpic, writeStory, nextEpicId, nextStoryId, writePrompt } from './saga-repo';
 import { ContextManager } from './context/manager';
+import { detectStack, findRelevantFiles } from './context/workspace-scanner';
+import { generateAgentPrompt } from './generation/agent-prompt';
+import { AgentPromptPanel } from './webview/agent-prompt-panel';
 import { GenerationService } from './generation/service';
 import { InvestValidator } from './invest/validator';
 import { SagaTreeProvider, ContextTreeProvider } from './tree/saga-tree';
@@ -1079,6 +1082,95 @@ export async function activate(context: vscode.ExtensionContext) {
 
     });
 
+    // ── saga.generateAgentPrompt (F12) ────────────────────────────────────────
+    const generateAgentPromptCmd = vscode.commands.registerCommand(
+        'saga.generateAgentPrompt',
+        async (arg?: string | { story?: { id: string }; id?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            let storyId: string | undefined;
+            if (typeof arg === 'string') { storyId = arg; }
+            else if (arg && typeof arg === 'object') {
+                storyId = (arg as { story?: { id: string } }).story?.id ?? (arg as { id?: string }).id;
+            }
+            if (!storyId) {
+                const stories = await listStories(sagaRoot);
+                if (stories.length === 0) { vscode.window.showWarningMessage('No stories found. Generate stories first.'); return; }
+                const picked = await vscode.window.showQuickPick(
+                    stories.map((s) => ({ label: s.id, description: `${s.epic} — ${s.title}` })),
+                    { placeHolder: 'Select a story to generate an agent prompt for' },
+                );
+                if (!picked) { return; }
+                storyId = picked.label;
+            }
+
+            const story = await readStory(sagaRoot, storyId);
+
+            const resolved = await resolveProviderFromConfig('agent_prompt', root, secrets);
+            if (!resolved) {
+                vscode.window.showErrorMessage('Saga: No AI provider available. Check Settings.');
+                return;
+            }
+
+            const manager = new ContextManager(sagaRoot);
+            const contextTexts = await manager.loadContextTexts();
+
+            let promptResult: Awaited<ReturnType<typeof generateAgentPrompt>> | undefined;
+            let cancelled = false;
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Saga: Generating agent prompt for ${storyId} via ${resolved.modelLabel}…`,
+                    cancellable: true,
+                },
+                async (_progress, token) => {
+                    const abort = new AbortController();
+                    token.onCancellationRequested(() => abort.abort());
+                    try {
+                        const [stack, relevantFiles] = await Promise.all([
+                            detectStack(root),
+                            findRelevantFiles(root, story),
+                        ]);
+                        promptResult = await generateAgentPrompt(
+                            resolved.provider,
+                            story,
+                            stack,
+                            relevantFiles,
+                            contextTexts,
+                            abort.signal,
+                        );
+                    } catch (err) {
+                        if (isAbortError(err)) { cancelled = true; }
+                        else { throw err; }
+                    }
+                },
+            );
+
+            if (cancelled) { vscode.window.showInformationMessage('Saga: Agent prompt generation cancelled.'); return; }
+            if (!promptResult) { return; }
+
+            logTokenUsage('agent_prompt', resolved.modelLabel, promptResult.usage);
+
+            // Save to disk immediately so the panel can offer "Open file" navigation
+            const savedUri = await writePrompt(sagaRoot, storyId, promptResult.content);
+
+            await AgentPromptPanel.open({
+                story,
+                content: promptResult.content,
+                modelLabel: resolved.modelLabel,
+                tokenUsage: promptResult.usage,
+                savedUri,
+                extensionUri: context.extensionUri,
+                onSave: async (content) => {
+                    await writePrompt(sagaRoot, storyId!, content);
+                },
+            });
+        },
+    );
+
     // ── saga.openSettings ──────────────────────────────────────────────────────
     const openSettingsCmd = vscode.commands.registerCommand('saga.openSettings', async () => {
         const root = requireRoot();
@@ -1133,6 +1225,7 @@ export async function activate(context: vscode.ExtensionContext) {
         pushStoryCmd,
         pushAllCmd,
         syncCmd,
+        generateAgentPromptCmd,
         openSettingsCmd,
         testGenCmd,
     );
