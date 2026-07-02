@@ -27,7 +27,6 @@ export interface AgentPromptPanelOptions {
     content: string;
     modelLabel: string;
     tokenUsage?: TokenUsage;
-    savedUri: vscode.Uri;
     extensionUri: vscode.Uri;
     /** Called when the user clicks Save — persists the (possibly edited) content. */
     onSave: (content: string) => Promise<void>;
@@ -37,25 +36,30 @@ export interface AgentPromptPanelOptions {
 
 export class AgentPromptPanel {
     static readonly viewType = 'sagaAgentPrompt';
-    private static _panel: AgentPromptPanel | undefined;
+
+    // One panel per story ID — lets the user have multiple open simultaneously.
+    private static _panels = new Map<string, AgentPromptPanel>();
 
     private readonly _panel: vscode.WebviewPanel;
     private _opts: AgentPromptPanelOptions;
     private _currentContent: string;
 
     static async open(opts: AgentPromptPanelOptions): Promise<void> {
-        if (AgentPromptPanel._panel) {
-            AgentPromptPanel._panel._opts = opts;
-            AgentPromptPanel._panel._currentContent = opts.content;
-            AgentPromptPanel._panel._panel.reveal(vscode.ViewColumn.One);
-            AgentPromptPanel._panel._load();
+        const storyId = opts.story.id;
+        const existing = AgentPromptPanel._panels.get(storyId);
+        if (existing) {
+            // Same story — refresh content and bring to front.
+            existing._opts = opts;
+            existing._currentContent = opts.content;
+            existing._panel.reveal(vscode.ViewColumn.Beside);
+            existing._load();
             return;
         }
 
         const panel = vscode.window.createWebviewPanel(
             AgentPromptPanel.viewType,
-            `Agent Prompt — ${opts.story.id}`,
-            vscode.ViewColumn.One,
+            `Agent Prompt — ${storyId}`,
+            vscode.ViewColumn.Beside,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
@@ -63,7 +67,7 @@ export class AgentPromptPanel {
             },
         );
 
-        AgentPromptPanel._panel = new AgentPromptPanel(panel, opts);
+        AgentPromptPanel._panels.set(storyId, new AgentPromptPanel(panel, opts));
     }
 
     private constructor(panel: vscode.WebviewPanel, opts: AgentPromptPanelOptions) {
@@ -91,7 +95,7 @@ export class AgentPromptPanel {
         });
 
         this._panel.onDidDispose(() => {
-            AgentPromptPanel._panel = undefined;
+            AgentPromptPanel._panels.delete(this._opts.story.id);
         });
     }
 
@@ -108,8 +112,4 @@ export class AgentPromptPanel {
         void this._panel.webview.postMessage(msg);
     }
 
-    /** Update the in-memory content (called from the webview when user edits). */
-    updateContent(content: string): void {
-        this._currentContent = content;
-    }
 }

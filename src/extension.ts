@@ -1157,15 +1157,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
             logTokenUsage('agent_prompt', resolved.modelLabel, promptResult.usage);
 
-            // Save to disk immediately so the panel can offer "Open file" navigation
-            const savedUri = await writePrompt(sagaRoot, storyId, promptResult.content);
-
             await AgentPromptPanel.open({
                 story,
                 content: promptResult.content,
                 modelLabel: resolved.modelLabel,
                 tokenUsage: promptResult.usage,
-                savedUri,
                 extensionUri: context.extensionUri,
                 onSave: async (content) => {
                     await writePrompt(sagaRoot, storyId!, content);
