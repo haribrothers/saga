@@ -22,7 +22,8 @@ export type WebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; story: StoryData }
     | { type: 'validate' }
-    | { type: 'generateSubtasks' };
+    | { type: 'generateSubtasks' }
+    | { type: 'splitStory' };
 
 export interface SubtaskData {
     id: string;

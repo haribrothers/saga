@@ -20,7 +20,8 @@ type WebviewToExtension =
     | { type: 'ready' }
     | { type: 'save'; story: StoryMsg }
     | { type: 'validate' }
-    | { type: 'generateSubtasks' };
+    | { type: 'generateSubtasks' }
+    | { type: 'splitStory' };
 
 interface StoryMsg {
     id: string;
@@ -154,19 +155,56 @@ export class StoryPanel {
                 return;
             }
 
-            try {
-                const result = await generateSubtasks(resolved.provider, story);
-                const updated: Story = { ...story, subtasks: [...story.subtasks] };
-                for (const proposed of result.items) {
-                    const id = nextSubtaskId(updated);
-                    updated.subtasks.push({ id, title: proposed.title, type: proposed.type, done: false });
-                }
-                await writeStory(sagaRoot, updated);
-                this.post({ type: 'subtasksGenerated', subtasks: updated.subtasks });
-            } catch (err) {
-                vscode.window.showErrorMessage(`Saga: Subtask generation failed — ${err instanceof Error ? err.message : String(err)}`);
+            let result: Awaited<ReturnType<typeof generateSubtasks>> | undefined;
+            let cancelled = false;
+            let failure: unknown;
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Saga: Proposing subtasks for ${this._storyId} via ${resolved.modelLabel}…`,
+                    cancellable: true,
+                },
+                async (_progress, token) => {
+                    const abort = new AbortController();
+                    token.onCancellationRequested(() => abort.abort());
+                    try {
+                        result = await generateSubtasks(resolved.provider, story, abort.signal);
+                        // The underlying provider may not interrupt an in-flight request on
+                        // cancellation (best-effort only) — re-check after the await resolves
+                        // so a late cancel still discards the result instead of writing it.
+                        if (abort.signal.aborted) { cancelled = true; result = undefined; }
+                    } catch (err) {
+                        if (isAbortError(err) || abort.signal.aborted) { cancelled = true; }
+                        else { failure = err; }
+                    }
+                },
+            );
+
+            if (cancelled) {
+                vscode.window.showInformationMessage('Saga: Subtask generation cancelled.');
                 this.post({ type: 'subtasksGenerated', subtasks: story.subtasks });
+                return;
             }
+            if (failure || !result) {
+                vscode.window.showErrorMessage(`Saga: Subtask generation failed — ${failure instanceof Error ? failure.message : String(failure)}`);
+                this.post({ type: 'subtasksGenerated', subtasks: story.subtasks });
+                return;
+            }
+
+            const updated: Story = { ...story, subtasks: [...story.subtasks] };
+            for (const proposed of result.items) {
+                const id = nextSubtaskId(updated);
+                updated.subtasks.push({ id, title: proposed.title, type: proposed.type, done: false });
+            }
+            await writeStory(sagaRoot, updated);
+            this.post({ type: 'subtasksGenerated', subtasks: updated.subtasks });
+        }
+
+        if (msg.type === 'splitStory') {
+            // Delegate to the saga.splitStory command so the panel reuses the exact
+            // same INVEST re-check, progress UX, and save-gated original-deletion flow.
+            await vscode.commands.executeCommand('saga.splitStory', this._storyId);
         }
     }
 
@@ -180,6 +218,13 @@ export class StoryPanel {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isAbortError(err: unknown): boolean {
+    return (
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message.includes('aborted') || err.message.includes('Cancelled'))
+    );
+}
 
 function storyToMsg(story: Story): StoryMsg {
     return {

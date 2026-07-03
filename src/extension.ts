@@ -1311,8 +1311,12 @@ export async function activate(context: vscode.ExtensionContext) {
                     token.onCancellationRequested(() => abort.abort());
                     try {
                         result = await generateSubtasks(resolved.provider, story, abort.signal);
+                        // The underlying provider may not interrupt an in-flight request on
+                        // cancellation (best-effort only) — re-check after the await resolves
+                        // so a late cancel still discards the result instead of writing it.
+                        if (abort.signal.aborted) { cancelled = true; result = undefined; }
                     } catch (err) {
-                        if (isAbortError(err)) { cancelled = true; }
+                        if (isAbortError(err) || abort.signal.aborted) { cancelled = true; }
                         else { throw err; }
                     }
                 },

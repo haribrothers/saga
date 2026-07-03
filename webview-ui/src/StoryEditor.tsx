@@ -124,6 +124,10 @@ export function StoryEditor() {
         vscode.postMessage({ type: 'generateSubtasks' });
     }, []);
 
+    const handleSplitStory = useCallback(() => {
+        vscode.postMessage({ type: 'splitStory' });
+    }, []);
+
     if (!state.story) {
         return <div className="loading">Loading story…</div>;
     }
@@ -138,6 +142,9 @@ export function StoryEditor() {
                 <div className="header-actions">
                     <button onClick={handleValidate} disabled={state.validating} className="btn-secondary">
                         {state.validating ? 'Validating…' : '✓ Validate'}
+                    </button>
+                    <button onClick={handleSplitStory} className="btn-secondary" title="Split this story into smaller stories">
+                        ⑂ Split Story
                     </button>
                     <button onClick={handleSave} disabled={state.saving || !state.dirty} className="btn-primary">
                         {state.saving ? 'Saving…' : 'Save'}
