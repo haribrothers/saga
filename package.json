@@ -1,13 +1,36 @@
 {
   "name": "saga",
   "displayName": "Saga",
-  "description": "AI-powered agile planning for VS Code",
+  "description": "AI-generated, INVEST-compliant agile stories synced with Jira/Azure DevOps and version-controlled next to your code.",
   "version": "0.0.1",
+  "publisher": "haribrothers",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haribrothers/saga.git"
+  },
   "engines": {
     "vscode": "^1.125.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "agile",
+    "user stories",
+    "epics",
+    "invest",
+    "gherkin",
+    "acceptance criteria",
+    "jira",
+    "azure devops",
+    "backlog",
+    "planning",
+    "ai",
+    "copilot",
+    "product management",
+    "scrum",
+    "agents.md"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
