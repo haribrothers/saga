@@ -913,6 +913,56 @@ export async function activate(context: vscode.ExtensionContext) {
                 } else {
                     vscode.window.showInformationMessage(`Pushed ${unpushed.length} stories under ${remoteKey}.`);
                 }
+
+                // Offer to push subtasks under the stories just pushed — mirrors
+                // saga.pushStory's own "Push N Subtasks" notification action, which
+                // this bulk flow would otherwise silently skip (pushOneStory only
+                // pushes the story shell, never its subtasks).
+                const pushedStories = await Promise.all(unpushed.map((s) => readStory(sagaRoot, s.id)));
+                const subtaskTargets: { storyId: string; subtaskId: string; storyRemoteKey: string }[] = [];
+                for (const s of pushedStories) {
+                    if (s.remote?.provider !== adapter.provider || !s.remote.key) { continue; }
+                    for (const sub of s.subtasks) {
+                        if (!(sub.remote?.provider === adapter.provider && sub.remote.key)) {
+                            subtaskTargets.push({ storyId: s.id, subtaskId: sub.id, storyRemoteKey: s.remote.key });
+                        }
+                    }
+                }
+
+                if (subtaskTargets.length > 0) {
+                    const subtaskLabel = `Push ${subtaskTargets.length} ${subtaskTargets.length === 1 ? 'Subtask' : 'Subtasks'}`;
+                    const subtaskAction = await vscode.window.showInformationMessage(
+                        `${subtaskTargets.length} subtask(s) under these stories haven't been pushed yet.`,
+                        subtaskLabel,
+                    );
+                    if (subtaskAction === subtaskLabel) {
+                        let subtaskFailed = 0;
+                        await vscode.window.withProgress(
+                            { location: vscode.ProgressLocation.Notification, title: `Saga: Pushing ${subtaskTargets.length} subtasks…`, cancellable: false },
+                            async () => {
+                                for (const t of subtaskTargets) {
+                                    try {
+                                        await pushOneSubtask(adapter, sagaRoot, t.storyId, t.subtaskId, t.storyRemoteKey);
+                                        channel.appendLine(`✓ ${t.storyId}:${t.subtaskId} pushed to ${adapter.provider}`);
+                                    } catch (err) {
+                                        subtaskFailed++;
+                                        channel.appendLine(`✗ ${t.storyId}:${t.subtaskId}: ${err instanceof Error ? err.message : String(err)}`);
+                                    }
+                                }
+                            },
+                        );
+                        sagaTree?.refresh();
+                        const subtaskSucceeded = subtaskTargets.length - subtaskFailed;
+                        if (subtaskFailed > 0) {
+                            vscode.window.showWarningMessage(
+                                `Pushed ${subtaskSucceeded}/${subtaskTargets.length} subtasks. ${subtaskFailed} failed — see Saga output channel for details.`,
+                                'Show Output',
+                            ).then((choice) => { if (choice === 'Show Output') { channel.show(); } });
+                        } else {
+                            vscode.window.showInformationMessage(`Pushed ${subtaskTargets.length} subtasks.`);
+                        }
+                    }
+                }
             } else if (action === 'Open in Browser') {
                 const updatedEpic = await readEpic(sagaRoot, epicId);
                 if (updatedEpic.remote?.url) {
