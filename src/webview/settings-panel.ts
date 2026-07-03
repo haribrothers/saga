@@ -65,6 +65,9 @@ export interface SettingsConfigData {
             area_path: string;
             epic_work_item_type: string;
             story_work_item_type: string;
+            subtask_work_item_type: string;
+            ac_field_id: string;
+            story_points_field_id: string; // empty string = fall back to the standard field
         };
     };
     telemetry: {
@@ -241,6 +244,9 @@ export class SettingsPanel {
                         area_path: raw.tracker.ado?.area_path ?? '',
                         epic_work_item_type: raw.tracker.ado?.epic_work_item_type ?? 'Epic',
                         story_work_item_type: raw.tracker.ado?.story_work_item_type ?? 'User Story',
+                        subtask_work_item_type: raw.tracker.ado?.subtask_work_item_type ?? 'Task',
+                        ac_field_id: raw.tracker.ado?.ac_field_id ?? 'Microsoft.VSTS.Common.AcceptanceCriteria',
+                        story_points_field_id: raw.tracker.ado?.story_points_field_id ?? '',
                     },
                 },
                 telemetry: {
@@ -304,6 +310,13 @@ export class SettingsPanel {
         setIn(doc, ['tracker', 'ado', 'area_path'],           data.tracker.ado.area_path);
         setIn(doc, ['tracker', 'ado', 'epic_work_item_type'], data.tracker.ado.epic_work_item_type);
         setIn(doc, ['tracker', 'ado', 'story_work_item_type'],data.tracker.ado.story_work_item_type);
+        setIn(doc, ['tracker', 'ado', 'subtask_work_item_type'], data.tracker.ado.subtask_work_item_type);
+        setIn(doc, ['tracker', 'ado', 'ac_field_id'],         data.tracker.ado.ac_field_id);
+        // Only write story_points_field_id when non-empty; omit to fall back to the
+        // standard Microsoft.VSTS.Scheduling.StoryPoints field.
+        if (data.tracker.ado.story_points_field_id) {
+            setIn(doc, ['tracker', 'ado', 'story_points_field_id'], data.tracker.ado.story_points_field_id);
+        }
         setIn(doc, ['telemetry', 'enabled'], data.telemetry.enabled);
 
         await vscode.workspace.fs.writeFile(configUri, Buffer.from(doc.toString(), 'utf-8'));
@@ -524,6 +537,9 @@ export class SettingsPanel {
                         areaPath: adoCfg.area_path,
                         epicWorkItemType: adoCfg.epic_work_item_type,
                         storyWorkItemType: adoCfg.story_work_item_type,
+                        subtaskWorkItemType: adoCfg.subtask_work_item_type,
+                        acFieldId: adoCfg.ac_field_id,
+                        storyPointsFieldId: adoCfg.story_points_field_id,
                     },
                 });
                 return adapter.testConnection();
@@ -587,7 +603,7 @@ function defaultSettingsConfig(): SettingsConfigData {
         tracker: {
             default: 'none',
             jira: { base_url: '', project_key: '', email: '', epic_issue_type: 'Epic', story_issue_type: 'Story', subtask_issue_type: 'Sub-task', ac_field_id: 'description', epic_link_style: 'parent', story_points_field_id: '' },
-            ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story' },
+            ado: { org_url: '', project: '', area_path: '', epic_work_item_type: 'Epic', story_work_item_type: 'User Story', subtask_work_item_type: 'Task', ac_field_id: 'Microsoft.VSTS.Common.AcceptanceCriteria', story_points_field_id: '' },
         },
         telemetry: { enabled: false },
     };

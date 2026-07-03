@@ -60,6 +60,9 @@ export async function buildTrackerAdapter(
                 areaPath: adoCfg.area_path,
                 epicWorkItemType: adoCfg.epic_work_item_type,
                 storyWorkItemType: adoCfg.story_work_item_type,
+                subtaskWorkItemType: adoCfg.subtask_work_item_type,
+                acFieldId: adoCfg.ac_field_id,
+                storyPointsFieldId: adoCfg.story_points_field_id,
             },
         });
     }

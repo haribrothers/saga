@@ -63,6 +63,9 @@ export interface SettingsConfigData {
             area_path: string;
             epic_work_item_type: string;
             story_work_item_type: string;
+            subtask_work_item_type: string;
+            ac_field_id: string;
+            story_points_field_id: string; // empty string = fall back to the standard field
         };
     };
     telemetry: {

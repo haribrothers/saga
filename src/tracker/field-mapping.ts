@@ -177,8 +177,17 @@ export function toJiraSubtaskFields(
 export interface AdoConfig {
     project: string;
     areaPath?: string;
-    epicWorkItemType: string;  // e.g. "Epic"
-    storyWorkItemType: string; // e.g. "User Story" or "Product Backlog Item" (Scrum)
+    epicWorkItemType: string;    // e.g. "Epic"
+    storyWorkItemType: string;   // e.g. "User Story" or "Product Backlog Item" (Scrum)
+    /** Work item type for subtasks. e.g. "Task" — standard across Agile/Scrum/CMMI. */
+    subtaskWorkItemType: string;
+    /** Field reference for acceptance criteria. Defaults to the standard field. */
+    acFieldId: string;
+    /**
+     * Field reference for story points. When undefined, falls back to the standard
+     * Microsoft.VSTS.Scheduling.StoryPoints field.
+     */
+    storyPointsFieldId?: string;
 }
 
 export interface AdoPatchOperation {
@@ -187,8 +196,8 @@ export interface AdoPatchOperation {
     value?: unknown;
 }
 
-function storyPointsPath(): string {
-    return '/fields/Microsoft.VSTS.Scheduling.StoryPoints';
+function storyPointsPath(cfg: AdoConfig): string {
+    return `/fields/${cfg.storyPointsFieldId ?? 'Microsoft.VSTS.Scheduling.StoryPoints'}`;
 }
 
 export function toAdoEpicPatch(epic: Epic, cfg: AdoConfig): AdoPatchOperation[] {
@@ -215,6 +224,7 @@ export function toAdoEpicPatch(epic: Epic, cfg: AdoConfig): AdoPatchOperation[] 
 export function toAdoStoryPatch(
     story: Story,
     cfg: AdoConfig,
+    orgUrl: string,
     epicWorkItemId?: number,
 ): AdoPatchOperation[] {
     const description = [
@@ -233,7 +243,7 @@ export function toAdoStoryPatch(
         { op: 'add', path: '/fields/System.Description', value: description },
         {
             op: 'add',
-            path: '/fields/Microsoft.VSTS.Common.AcceptanceCriteria',
+            path: `/fields/${cfg.acFieldId}`,
             value: acHtml,
         },
     ];
@@ -243,21 +253,22 @@ export function toAdoStoryPatch(
     }
 
     if (story.estimate !== undefined) {
-        ops.push({ op: 'add', path: storyPointsPath(), value: story.estimate });
+        ops.push({ op: 'add', path: storyPointsPath(cfg), value: story.estimate });
     }
 
     if (story.labels.length > 0) {
         ops.push({ op: 'add', path: '/fields/System.Tags', value: story.labels.join('; ') });
     }
 
-    // Link to parent epic work item
+    // Link to parent epic work item — ADO requires the full absolute URL here,
+    // not a relative path (a relative url fails with 400 "requires the full url").
     if (epicWorkItemId !== undefined) {
         ops.push({
             op: 'add',
             path: '/relations/-',
             value: {
                 rel: 'System.LinkTypes.Hierarchy-Reverse',
-                url: `_apis/wit/workItems/${epicWorkItemId}`,
+                url: `${orgUrl}/_apis/wit/workItems/${epicWorkItemId}`,
             },
         });
     }
@@ -268,6 +279,7 @@ export function toAdoStoryPatch(
 export function toAdoSubtaskPatch(
     subtask: Subtask,
     cfg: AdoConfig,
+    orgUrl: string,
     storyWorkItemId: number,
 ): AdoPatchOperation[] {
     const ops: AdoPatchOperation[] = [
@@ -280,12 +292,13 @@ export function toAdoSubtaskPatch(
         ops.push({ op: 'add', path: '/fields/System.AreaPath', value: cfg.areaPath });
     }
 
+    // ADO requires the full absolute URL here, not a relative path.
     ops.push({
         op: 'add',
         path: '/relations/-',
         value: {
             rel: 'System.LinkTypes.Hierarchy-Reverse',
-            url: `_apis/wit/workItems/${storyWorkItemId}`,
+            url: `${orgUrl}/_apis/wit/workItems/${storyWorkItemId}`,
         },
     });
 

@@ -887,16 +887,32 @@ export async function activate(context: vscode.ExtensionContext) {
             );
 
             if (action === actionLabel && actionLabel) {
+                const channel = getSagaChannel();
+                let failed = 0;
                 await vscode.window.withProgress(
                     { location: vscode.ProgressLocation.Notification, title: `Saga: Pushing ${unpushed.length} stories…`, cancellable: false },
                     async () => {
                         for (const s of unpushed) {
-                            await pushOneStory(adapter, sagaRoot, s.id, remoteKey);
+                            try {
+                                await pushOneStory(adapter, sagaRoot, s.id, remoteKey);
+                                channel.appendLine(`✓ ${s.id} pushed to ${adapter.provider}`);
+                            } catch (err) {
+                                failed++;
+                                channel.appendLine(`✗ ${s.id}: ${err instanceof Error ? err.message : String(err)}`);
+                            }
                         }
                     },
                 );
                 sagaTree?.refresh();
-                vscode.window.showInformationMessage(`Pushed ${unpushed.length} stories under ${remoteKey}.`);
+                const succeeded = unpushed.length - failed;
+                if (failed > 0) {
+                    vscode.window.showWarningMessage(
+                        `Pushed ${succeeded}/${unpushed.length} stories under ${remoteKey}. ${failed} failed — see Saga output channel for details.`,
+                        'Show Output',
+                    ).then((choice) => { if (choice === 'Show Output') { channel.show(); } });
+                } else {
+                    vscode.window.showInformationMessage(`Pushed ${unpushed.length} stories under ${remoteKey}.`);
+                }
             } else if (action === 'Open in Browser') {
                 const updatedEpic = await readEpic(sagaRoot, epicId);
                 if (updatedEpic.remote?.url) {

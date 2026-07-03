@@ -212,6 +212,24 @@ export const ConfigSchema = z.object({
              * "User Story" for Agile, "Product Backlog Item" for Scrum, "Issue" for Basic.
              */
             story_work_item_type: z.string().default('User Story'),
+            /**
+             * Work item type for subtasks. Default: "Task".
+             * Standard across Agile/Scrum/CMMI process templates; override for custom
+             * process templates that rename or don't support the Task type.
+             */
+            subtask_work_item_type: z.string().default('Task'),
+            /**
+             * Field reference for acceptance criteria.
+             * Default is the standard Agile/Scrum/CMMI field; override for custom
+             * process templates that use a different field.
+             */
+            ac_field_id: z.string().default('Microsoft.VSTS.Common.AcceptanceCriteria'),
+            /**
+             * Field reference for story points. Omit to fall back to the standard
+             * Microsoft.VSTS.Scheduling.StoryPoints field; override for custom process
+             * templates (e.g. Basic, which has no story points field by default).
+             */
+            story_points_field_id: z.string().optional(),
         }).optional(),
     }),
     telemetry: z.object({

@@ -540,6 +540,16 @@ function TrackerSection({
                                     value={config.tracker.ado.epic_work_item_type} onChange={(v) => setAdo({ epic_work_item_type: v })} />
                                 <TrackerField label="Story work item type" placeholder="User Story"
                                     value={config.tracker.ado.story_work_item_type} onChange={(v) => setAdo({ story_work_item_type: v })} />
+                                <TrackerField label="Subtask work item type" placeholder="Task"
+                                    value={config.tracker.ado.subtask_work_item_type} onChange={(v) => setAdo({ subtask_work_item_type: v })} />
+                                <TrackerField label="Acceptance criteria field" placeholder="Microsoft.VSTS.Common.AcceptanceCriteria"
+                                    value={config.tracker.ado.ac_field_id} onChange={(v) => setAdo({ ac_field_id: v })} />
+                                <TrackerField
+                                    label="Story points field (optional)"
+                                    placeholder="Microsoft.VSTS.Scheduling.StoryPoints"
+                                    value={config.tracker.ado.story_points_field_id}
+                                    onChange={(v) => setAdo({ story_points_field_id: v })}
+                                />
                             </div>
                         </details>
                     </div>

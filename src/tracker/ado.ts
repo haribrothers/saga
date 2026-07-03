@@ -47,7 +47,7 @@ export class AdoAdapter implements TrackerAdapter {
     async testConnection(): Promise<ConnectionTestResult> {
         try {
             const data = await this.get<AdoProjectInfo>(
-                `/${this.cfg.project}/_apis/project?api-version=${this.apiVersion}`,
+                `/_apis/projects/${encodeURIComponent(this.cfg.project)}?api-version=${this.apiVersion}`,
             );
             return { ok: true, message: `Connected to project "${data.name}"` };
         } catch (err) {
@@ -83,7 +83,7 @@ export class AdoAdapter implements TrackerAdapter {
 
     async pushStory(story: Story, epicRemoteKey?: string): Promise<PushResult> {
         const epicId = epicRemoteKey !== undefined ? Number(epicRemoteKey) : undefined;
-        const patch = toAdoStoryPatch(story, this.cfg, epicId);
+        const patch = toAdoStoryPatch(story, this.cfg, this.orgUrl, epicId);
         const hash = hashStory(story);
 
         let workItem: AdoWorkItem;
@@ -109,7 +109,7 @@ export class AdoAdapter implements TrackerAdapter {
     }
 
     async pushSubtask(subtask: Subtask, storyRemoteKey: string): Promise<PushResult> {
-        const patch = toAdoSubtaskPatch(subtask, this.cfg, Number(storyRemoteKey));
+        const patch = toAdoSubtaskPatch(subtask, this.cfg, this.orgUrl, Number(storyRemoteKey));
         // Use the tracker-comparable hash (excludes `type`, which trackers don't
         // model) so it's directly comparable to hashRemoteSubtask() during sync.
         const hash = hashComparableSubtask(subtask);
@@ -119,7 +119,7 @@ export class AdoAdapter implements TrackerAdapter {
         if (subtask.remote?.provider === 'ado' && subtask.remote.key) {
             workItem = await this.updateWorkItem(Number(subtask.remote.key), patch);
         } else {
-            workItem = await this.createWorkItem('Task', patch);
+            workItem = await this.createWorkItem(this.cfg.subtaskWorkItemType, patch);
         }
 
         const url = workItem._links?.html?.href ?? this.browseUrl(workItem.id);
@@ -289,8 +289,17 @@ export class AdoAdapter implements TrackerAdapter {
         if (res.ok) { return; }
         let body = '';
         try { body = await res.text(); } catch { /* ignore */ }
+        // ADO error bodies are typically JSON with a human-readable `message`
+        // (e.g. "Rule Error for field ... referenced field ... does not exist").
+        // Surface it so a 400 is diagnosable instead of a bare status code.
+        let detail = '';
+        try {
+            const parsed = JSON.parse(body) as { message?: string };
+            if (parsed.message) { detail = ` — ${parsed.message}`; }
+        } catch { /* body wasn't JSON — fall back to raw text below */ }
+        if (!detail && body) { detail = ` — ${body}`; }
         throw new TrackerError(
-            `ADO ${method} ${path} failed: ${res.status} ${res.statusText}`,
+            `ADO ${method} ${path} failed: ${res.status} ${res.statusText}${detail}`,
             res.status,
             body,
         );
