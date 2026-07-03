@@ -45,7 +45,8 @@
       {
         "command": "saga.gettingStarted",
         "title": "Getting Started",
-        "category": "Saga"
+        "category": "Saga",
+        "icon": "$(rocket)"
       },
       {
         "command": "saga.addContextFile",
@@ -103,12 +104,14 @@
       {
         "command": "saga.clearEpics",
         "title": "Clear Epics",
-        "category": "Saga"
+        "category": "Saga",
+        "icon": "$(clear-all)"
       },
       {
         "command": "saga.cleanUp",
         "title": "Clean Up",
-        "category": "Saga"
+        "category": "Saga",
+        "icon": "$(trash)"
       },
       {
         "command": "saga.pushEpic",
@@ -184,17 +187,36 @@
       {
         "command": "saga.openTemplate",
         "title": "Open Template",
-        "category": "Saga"
+        "category": "Saga",
+        "icon": "$(files)"
       },
       {
         "command": "saga.resetTemplate",
         "title": "Reset Template",
-        "category": "Saga"
+        "category": "Saga",
+        "icon": "$(discard)"
       },
       {
         "command": "saga.testGeneration",
         "title": "Test Generation",
         "category": "Saga"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "saga.moreActionsMenu",
+        "label": "More Actions",
+        "icon": "$(ellipsis)"
+      },
+      {
+        "id": "saga.epicMoreActionsMenu",
+        "label": "More Actions",
+        "icon": "$(ellipsis)"
+      },
+      {
+        "id": "saga.storyMoreActionsMenu",
+        "label": "More Actions",
+        "icon": "$(ellipsis)"
       }
     ],
     "viewsContainers": {
@@ -242,89 +264,123 @@
         {
           "command": "saga.generateEpics",
           "when": "view == saga.storiesView",
-          "group": "navigation"
-        },
-        {
-          "command": "saga.generateAgentsMd",
-          "when": "view == saga.storiesView",
-          "group": "navigation"
-        },
-        {
-          "command": "saga.exportBacklog",
-          "when": "view == saga.storiesView",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "saga.pushAll",
           "when": "view == saga.storiesView",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "saga.sync",
           "when": "view == saga.storiesView",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
           "command": "saga.validateStories",
           "when": "view == saga.storiesView",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "saga.openSettings",
-          "when": "view == saga.storiesView || view == saga.contextView",
+          "when": "view == saga.storiesView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "saga.openSettings",
+          "when": "view == saga.contextView",
           "group": "navigation"
         },
         {
-          "command": "saga.moreActions",
+          "submenu": "saga.moreActionsMenu",
           "when": "view == saga.storiesView",
-          "group": "overflow"
+          "group": "navigation@6"
+        }
+      ],
+      "saga.moreActionsMenu": [
+        {
+          "command": "saga.generateAgentsMd",
+          "group": "1_generate@1"
+        },
+        {
+          "command": "saga.exportBacklog",
+          "group": "1_generate@2"
+        },
+        {
+          "command": "saga.gettingStarted",
+          "group": "2_onboarding@1"
+        },
+        {
+          "command": "saga.openTemplate",
+          "group": "3_templates@1"
+        },
+        {
+          "command": "saga.resetTemplate",
+          "group": "3_templates@2"
+        },
+        {
+          "command": "saga.clearEpics",
+          "group": "4_destructive@1"
+        },
+        {
+          "command": "saga.cleanUp",
+          "group": "4_destructive@2"
         }
       ],
       "view/item/context": [
         {
           "command": "saga.generateStoriesForEpic",
           "when": "viewItem == sagaEpic",
-          "group": "inline"
+          "group": "inline@1"
         },
         {
           "command": "saga.pushEpic",
           "when": "viewItem == sagaEpic",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
-          "command": "saga.deleteEpic",
+          "submenu": "saga.epicMoreActionsMenu",
           "when": "viewItem == sagaEpic",
-          "group": "saga@1"
-        },
-        {
-          "command": "saga.clearStoriesForEpic",
-          "when": "viewItem == sagaEpic",
-          "group": "saga@2"
+          "group": "inline@3"
         },
         {
           "command": "saga.pushStory",
           "when": "viewItem == sagaStory",
-          "group": "inline"
+          "group": "inline@1"
         },
         {
           "command": "saga.generateAgentPrompt",
           "when": "viewItem == sagaStory",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
-          "command": "saga.generateSubtasks",
+          "submenu": "saga.storyMoreActionsMenu",
           "when": "viewItem == sagaStory",
-          "group": "saga@1"
+          "group": "inline@3"
+        }
+      ],
+      "saga.epicMoreActionsMenu": [
+        {
+          "command": "saga.clearStoriesForEpic",
+          "group": "1_manage@1"
+        },
+        {
+          "command": "saga.deleteEpic",
+          "group": "2_destructive@1"
+        }
+      ],
+      "saga.storyMoreActionsMenu": [
+        {
+          "command": "saga.generateSubtasks",
+          "group": "1_generate@1"
         },
         {
           "command": "saga.splitStory",
-          "when": "viewItem == sagaStory",
-          "group": "saga@2"
+          "group": "1_generate@2"
         },
         {
           "command": "saga.deleteStory",
-          "when": "viewItem == sagaStory",
-          "group": "saga@3"
+          "group": "2_destructive@1"
         }
       ],
       "explorer/context": [

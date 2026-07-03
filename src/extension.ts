@@ -1686,6 +1686,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── saga.moreActions (F38) ────────────────────────────────────────────────
     const moreActionsCmd = vscode.commands.registerCommand('saga.moreActions', async () => {
         const items: Array<{ label: string; description: string; command: string }> = [
+            { label: '$(gear) Settings', description: 'Configure AI provider, model routing, tracker, budget', command: 'saga.openSettings' },
+            { label: '$(file-code) Generate AGENTS.md', description: 'Generate/update AGENTS.md for coding agents', command: 'saga.generateAgentsMd' },
+            { label: '$(export) Export Backlog', description: 'Export epics and stories to Markdown, Word, or Excel', command: 'saga.exportBacklog' },
             { label: '$(rocket) Getting Started', description: 'Guided onboarding: provider, context, first epic', command: 'saga.gettingStarted' },
             { label: '$(files) Open Template', description: 'Edit a generation/prompt template', command: 'saga.openTemplate' },
             { label: '$(discard) Reset Template', description: 'Revert a customized template to its default', command: 'saga.resetTemplate' },
