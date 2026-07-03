@@ -220,9 +220,10 @@
 }
 
 .routing-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 180px 1fr;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     padding: 6px 0;
     border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
 }
@@ -234,7 +235,8 @@
 }
 
 .routing-select {
-    width: 260px;
+    width: 100%;
+    max-width: 320px;
     flex-shrink: 0;
 }
 
