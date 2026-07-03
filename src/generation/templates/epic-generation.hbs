@@ -13,11 +13,13 @@ You are an expert agile coach. Your task is to analyse the provided context docu
 Generate a list of epics that fully cover the work described in the context above.
 Each epic should represent a coherent, independently-valuable area of work.
 
-Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
+Return ONLY a YAML list — no prose, no markdown fences — in exactly this format. The title value
+MUST always be wrapped in double quotes, with any internal double quotes escaped as \", since
+titles may contain colons or other YAML-significant characters:
 
 - id: EPIC-001
   type: epic
-  title: <concise epic title>
+  title: "<concise epic title>"
   description: |
     <2–4 sentence description of what this epic covers and why it is valuable>
   status: draft

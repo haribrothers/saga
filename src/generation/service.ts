@@ -49,8 +49,7 @@ export class GenerationService {
         signal?: AbortSignal,
     ): Promise<GenerationResult<Epic>> {
         const prompt = await buildEpicGenPrompt(this.extensionUri, this.sagaRoot, context, startId, 2, 8, additionalInstructions);
-        const { text, usage } = await this.callWithRetry(prompt, 'epic', signal);
-        return { items: this.parseEpicList(text), usage };
+        return this.callWithRetry(prompt, 'epic', signal, (text) => this.parseEpicList(text));
     }
 
     /**
@@ -67,8 +66,7 @@ export class GenerationService {
         signal?: AbortSignal,
     ): Promise<GenerationResult<Story>> {
         const prompt = await buildStoryGenPrompt(this.extensionUri, this.sagaRoot, epic, siblingEpics, context, startId, 3, 8, additionalInstructions);
-        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
-        return { items: this.parseStoryList(text, epic.id), usage };
+        return this.callWithRetry(prompt, 'story', signal, (text) => this.parseStoryList(text, epic.id));
     }
 
     /**
@@ -80,8 +78,7 @@ export class GenerationService {
             epics.map((e) => ({ id: e.id, title: e.title, description: e.description ?? '' })),
             instructions,
         );
-        const { text, usage } = await this.callWithRetry(prompt, 'epic', signal);
-        return { items: this.parseEpicList(text), usage };
+        return this.callWithRetry(prompt, 'epic', signal, (text) => this.parseEpicList(text));
     }
 
     /**
@@ -106,8 +103,7 @@ export class GenerationService {
             })),
             instructions,
         );
-        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
-        return { items: this.parseStoryList(text, epicId), usage };
+        return this.callWithRetry(prompt, 'story', signal, (text) => this.parseStoryList(text, epicId));
     }
 
     /**
@@ -135,22 +131,26 @@ export class GenerationService {
             },
             startId,
         );
-        const { text, usage } = await this.callWithRetry(prompt, 'story', signal);
-        return { items: this.parseStoryList(text, story.epic), usage };
+        return this.callWithRetry(prompt, 'story', signal, (text) => this.parseStoryList(text, story.epic));
     }
 
     // ─── Private ──────────────────────────────────────────────────────────────
 
-    private async callWithRetry(
+    private async callWithRetry<T>(
         userPrompt: string,
         kind: 'epic' | 'story',
-        signal?: AbortSignal,
-    ): Promise<{ text: string; usage?: TokenUsage }> {
+        signal: AbortSignal | undefined,
+        parse: (text: string) => T[],
+    ): Promise<GenerationResult<T>> {
         const systemPrompt =
             `You are an expert agile coach. Return ONLY valid YAML — no markdown fences, no commentary. ` +
-            `The output must be a YAML list of ${kind} objects matching the exact schema requested.`;
+            `The output must be a YAML list of ${kind} objects matching the exact schema requested. ` +
+            `Every string scalar value (title, as_a, i_want, so_that, description, reason, etc.) MUST be ` +
+            `wrapped in double quotes with internal double quotes escaped as \\", since values may contain ` +
+            `colons or other YAML-significant characters.`;
 
         let lastUsage: TokenUsage | undefined;
+        let lastError: unknown;
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             // Surface cancellation before sending to avoid consuming tokens on a cancelled run.
@@ -169,11 +169,19 @@ export class GenerationService {
             lastUsage = response.usage;
             const text = this.stripFences(response.content.trim());
             if (text.startsWith('-')) {
-                return { text, usage: lastUsage };
+                try {
+                    return { items: parse(text), usage: lastUsage };
+                } catch (err) {
+                    // Malformed YAML (e.g. an unescaped quote/colon in a scalar) or schema
+                    // validation failure — retry with a stricter prompt instead of throwing.
+                    lastError = err;
+                    continue;
+                }
             }
             // Didn't start with a list — retry with tighter instruction
         }
-        throw new Error(`LLM did not return a valid YAML list after ${MAX_RETRIES} attempts.`);
+        const reason = lastError instanceof Error ? `: ${lastError.message}` : '';
+        throw new Error(`LLM did not return a valid YAML list after ${MAX_RETRIES} attempts${reason}`);
     }
 
     private parseEpicList(rawYaml: string): Epic[] {

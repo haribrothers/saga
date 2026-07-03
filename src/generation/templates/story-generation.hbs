@@ -34,16 +34,18 @@ Each story must:
 - Include at least one Gherkin scenario (happy path) and one negative/edge scenario
 - Have a story-point estimate (1, 2, 3, 5, 8 — flag anything needing splitting if >5)
 
-Return ONLY a YAML list — no prose, no markdown fences — in exactly this format:
+Return ONLY a YAML list — no prose, no markdown fences — in exactly this format. The title, as_a,
+i_want, and so_that values MUST always be wrapped in double quotes, with any internal double quotes
+escaped as \", since they may contain colons or other YAML-significant characters:
 
 - id: STORY-001
   type: story
-  title: <concise story title>
+  title: "<concise story title>"
   epic: {{epic.id}}
   status: draft
-  as_a: <persona>
-  i_want: <goal>
-  so_that: <benefit>
+  as_a: "<persona>"
+  i_want: "<goal>"
+  so_that: "<benefit>"
   description: |
     <optional extra context>
   invest:
