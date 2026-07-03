@@ -14,7 +14,7 @@ export function getWebviewHtml(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
     /** Value to set on <div id="root" data-panel="..."> for panel routing. */
-    panelName: 'story' | 'settings' | 'generation-review' | 'sync-review' | 'agent-prompt' | 'agents-md' | 'getting-started',
+    panelName: 'story' | 'epic' | 'settings' | 'generation-review' | 'sync-review' | 'agent-prompt' | 'agents-md' | 'getting-started',
 ): string {
     const distWebview = vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
     const indexPath = path.join(distWebview.fsPath, 'webview-ui', 'index.html');

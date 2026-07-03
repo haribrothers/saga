@@ -29,6 +29,11 @@ export class EpicTreeItem extends vscode.TreeItem {
         this.iconPath = isConflict
             ? new vscode.ThemeIcon('symbol-module', new vscode.ThemeColor('charts.orange'))
             : epicIcon(epic);
+        this.command = {
+            command: 'saga.editEpic',
+            title: 'Edit Epic',
+            arguments: [epic.id],
+        };
     }
 }
 

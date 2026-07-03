@@ -78,6 +78,12 @@
         "category": "Saga"
       },
       {
+        "command": "saga.editEpic",
+        "title": "Edit Epic",
+        "category": "Saga",
+        "icon": "$(edit)"
+      },
+      {
         "command": "saga.addInlineContext",
         "title": "Add Inline Context",
         "category": "Saga",
@@ -361,8 +367,12 @@
       ],
       "saga.epicMoreActionsMenu": [
         {
-          "command": "saga.clearStoriesForEpic",
+          "command": "saga.editEpic",
           "group": "1_manage@1"
+        },
+        {
+          "command": "saga.clearStoriesForEpic",
+          "group": "1_manage@2"
         },
         {
           "command": "saga.deleteEpic",

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StoryEditor } from './StoryEditor';
+import { EpicEditor } from './EpicEditor';
 import { SettingsEditor } from './SettingsEditor';
 import { GenerationReview } from './GenerationReview';
 import { SyncReview } from './SyncReview';
@@ -14,6 +15,7 @@ const panel = rootEl.dataset.panel;
 createRoot(rootEl).render(
     <StrictMode>
         {panel === 'settings' ? <SettingsEditor />
+            : panel === 'epic' ? <EpicEditor />
             : panel === 'generation-review' ? <GenerationReview />
             : panel === 'sync-review' ? <SyncReview />
             : panel === 'agent-prompt' ? <AgentPromptPanel />

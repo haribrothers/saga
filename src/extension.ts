@@ -18,6 +18,7 @@ import { GenerationService } from './generation/service';
 import { InvestValidator } from './invest/validator';
 import { SagaTreeProvider, ContextTreeProvider } from './tree/saga-tree';
 import { StoryPanel } from './webview/story-panel';
+import { EpicPanel } from './webview/epic-panel';
 import { SettingsPanel } from './webview/settings-panel';
 import { GenerationReviewPanel } from './webview/generation-review-panel';
 import { resolveProviderFromConfig } from './llm/routing';
@@ -325,6 +326,23 @@ export async function activate(context: vscode.ExtensionContext) {
             }
 
             const epic = await readEpic(sagaRoot, epicId);
+            const existingStories = await listStories(sagaRoot, epicId);
+
+            // If the epic already has stories, ask whether to add to them or replace them.
+            // Replacement is save-gated below (via onSaved) — the originals are only
+            // deleted once the newly generated stories are confirmed written.
+            let replaceExisting = false;
+            if (existingStories.length > 0) {
+                const choice = await vscode.window.showQuickPick(
+                    [
+                        { label: 'Add new stories', description: `Keep the ${existingStories.length} existing stories`, value: 'add' as const },
+                        { label: 'Replace all existing stories', description: `Delete the ${existingStories.length} existing stories once new ones are saved`, value: 'replace' as const },
+                    ],
+                    { placeHolder: `${epicId} already has ${existingStories.length} stor${existingStories.length === 1 ? 'y' : 'ies'} — how should generation proceed?` },
+                );
+                if (!choice) { return; }
+                replaceExisting = choice.value === 'replace';
+            }
 
             // Pre-generation instructions
             const instructions = await vscode.window.showInputBox({
@@ -391,6 +409,14 @@ export async function activate(context: vscode.ExtensionContext) {
                     logTokenUsage('story_generation', r.modelLabel, fresh.usage);
                     return { epics: [], stories: fresh.items, modelLabel: r.modelLabel, tokenUsage: fresh.usage };
                 },
+                // Only delete the originals once the newly generated stories are safely persisted.
+                onSaved: replaceExisting
+                    ? async () => {
+                        for (const s of existingStories) {
+                            await vscode.commands.executeCommand('saga.deleteStory', s.id);
+                        }
+                    }
+                    : undefined,
             });
             sagaTree?.refresh();
         },
@@ -437,6 +463,35 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!root || !(await requireInit(root))) { return; }
             const resolved = await resolveProviderFromConfig('invest_validation', root, secrets);
             await StoryPanel.open(storyId, root, context.extensionUri, resolved?.provider, secrets);
+        },
+    );
+
+    // ── saga.editEpic (F40) ────────────────────────────────────────────────────
+    const editEpicCmd = vscode.commands.registerCommand(
+        'saga.editEpic',
+        async (arg?: string | { epic?: { id: string }; id?: string }) => {
+            const root = requireRoot();
+            if (!root || !(await requireInit(root))) { return; }
+            const sagaRoot = getSagaRoot(root);
+
+            let epicId: string | undefined;
+            if (typeof arg === 'string') { epicId = arg; }
+            else if (arg && typeof arg === 'object') {
+                epicId = (arg as { epic?: { id: string } }).epic?.id ?? (arg as { id?: string }).id;
+            }
+
+            if (!epicId) {
+                const epics = await listEpics(sagaRoot);
+                if (epics.length === 0) { vscode.window.showWarningMessage('No epics found. Generate epics first.'); return; }
+                const picked = await vscode.window.showQuickPick(
+                    epics.map((ep) => ({ label: ep.id, description: ep.title })),
+                    { placeHolder: 'Select an epic to edit' },
+                );
+                if (!picked) { return; }
+                epicId = picked.label;
+            }
+
+            await EpicPanel.open(epicId, root, context.extensionUri);
         },
     );
 
@@ -1742,6 +1797,7 @@ export async function activate(context: vscode.ExtensionContext) {
         generateStoriesCmd,
         validateStoriesCmd,
         openStoryCmd,
+        editEpicCmd,
         deleteEpicCmd,
         deleteStoryCmd,
         clearStoriesForEpicCmd,
