@@ -149,12 +149,12 @@ body {
     gap: 8px;
 }
 
-.subtask-checkbox { flex-shrink: 0; }
+.subtask-checkbox { flex: 0 0 auto; }
 
-.subtask-title { flex: 1; }
+.subtask-title { flex: 1 1 auto; min-width: 0; }
 .subtask-title.done { text-decoration: line-through; color: var(--vscode-descriptionForeground); }
 
-.subtask-type { width: 90px; flex-shrink: 0; }
+.subtask-type { flex: 0 0 90px; width: 90px; }
 
 .subtask-remove { flex-shrink: 0; padding: 2px 8px; }
 
