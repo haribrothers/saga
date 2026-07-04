@@ -4,6 +4,8 @@
 
 Saga sits where your code already lives. It reads the documents you already have (product briefs, technical designs, coding standards) and generates epics and Gherkin-backed user stories, keeps them version-controlled in a `.saga/` folder inside your workspace, syncs both ways with Jira Cloud or Azure DevOps, and closes the loop back to engineering by generating ready-to-paste prompts (and a project `AGENTS.md`) for Claude Code, Copilot, or any coding agent.
 
+📖 **[Full documentation](https://haribrothers.github.io/saga/)** — getting started, AI provider setup, tracker configuration, and more.
+
 > _Screenshots and a walkthrough GIF are coming soon._
 
 ---
