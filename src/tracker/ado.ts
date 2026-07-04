@@ -170,7 +170,6 @@ export class AdoAdapter implements TrackerAdapter {
         );
         const f = item.fields ?? {};
 
-        const rawDesc = htmlToText(String(f['System.Description'] ?? ''));
         const { as_a, i_want, so_that, description } = parseAdoUserStoryHtml(
             String(f['System.Description'] ?? ''),
         );
@@ -201,7 +200,12 @@ export class AdoAdapter implements TrackerAdapter {
         );
         const f = item.fields ?? {};
         const state = String(f['System.State'] ?? '').toLowerCase();
-        const DONE_STATES = new Set(['closed', 'done', 'resolved', 'completed']);
+        // toAdoSubtaskPatch only ever pushes 'Closed' or 'New' (field-mapping.ts),
+        // so 'closed' always round-trips correctly. The rest are defensive extras
+        // for custom process templates whose terminal state has a different name
+        // than what Saga pushes — broadening this set can only reduce false
+        // "not done" mismatches, never introduce a false positive on our own data.
+        const DONE_STATES = new Set(['closed', 'done', 'resolved', 'completed', 'removed']);
         return {
             key: remoteKey,
             title: String(f['System.Title'] ?? ''),
@@ -320,41 +324,67 @@ export class AdoAdapter implements TrackerAdapter {
  * hashEpic()/hashStory() even with zero real edits.
  */
 function htmlToText(html: string): string {
-    return html
-        .replace(/<\/(p|div)>/gi, '\n\n')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n[ \t]+/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+    return unescapeAdoHtml(
+        html
+            .replace(/<\/(p|div)>/gi, '\n\n')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/[ \t]+/g, ' ')
+            .replace(/\n[ \t]+/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim(),
+    );
+}
+
+/**
+ * Reverse of field-mapping.ts's escapeAdoHtml() — decodes the HTML entities
+ * ADO's rich-text fields store `<`/`>`/`&` as, so text containing those
+ * characters (e.g. a Gherkin "Given the count < 5") round-trips exactly.
+ * `&amp;` must be unescaped last so an already-decoded `&lt;`/`&gt;` isn't
+ * re-mangled by a subsequent `&amp;` replacement.
+ */
+function unescapeAdoHtml(text: string): string {
+    return text
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
 }
 
 /**
  * Reverse of toAdoStoryPatch description block.
- * Parses "<p><strong>As a</strong> ...</p><p><strong>I want</strong> ...</p>..."
+ *
+ * Parses the PLAIN TEXT produced by htmlToText(), not the raw HTML tag
+ * structure — ADO's rich-text field is known to re-serialize saved HTML
+ * (re-wrapping in different tags, changing tag casing, collapsing/adding
+ * whitespace between elements), which made the previous tag-matching regex
+ * (`/<strong>As a<\/strong>\s*(.*?)<\/p>/i`) silently fail to match whenever
+ * ADO's stored markup didn't look exactly like what was sent — causing
+ * as_a/i_want/so_that to fall back to '' even with zero real edits, and a
+ * permanent false sync mismatch. Matching on the literal "As a"/"I want"/
+ * "So that" line-start text is insensitive to ADO's HTML reformatting,
+ * mirroring the same robust approach already used for Jira's
+ * parseUserStoryText().
  */
 function parseAdoUserStoryHtml(html: string): {
     as_a: string; i_want: string; so_that: string; description: string;
 } {
-    const asAMatch = html.match(/<strong>As a<\/strong>\s*(.*?)<\/p>/i);
-    const iWantMatch = html.match(/<strong>I want<\/strong>\s*(.*?)<\/p>/i);
-    const soThatMatch = html.match(/<strong>So that<\/strong>\s*(.*?)<\/p>/i);
+    const text = htmlToText(html);
 
-    // Description is the last <p> that is not one of the user-story header paragraphs
-    const allParas = [...html.matchAll(/<p>(.*?)<\/p>/gi)].map((m) => htmlToText(m[1]));
-    const headerTexts = new Set([
-        asAMatch ? htmlToText(asAMatch[0]) : null,
-        iWantMatch ? htmlToText(iWantMatch[0]) : null,
-        soThatMatch ? htmlToText(soThatMatch[0]) : null,
-    ]);
-    const descParas = allParas.filter((p) => !headerTexts.has(p) && p.trim());
-    const description = descParas.join('\n').trim();
+    const asAMatch = text.match(/^As a\s+(.+)/im);
+    const iWantMatch = text.match(/^I want\s+(.+)/im);
+    const soThatMatch = text.match(/^So that\s+(.+)/im);
+
+    // Description is everything after the "So that" line.
+    const soThatIdx = text.search(/^So that\s+.+$/im);
+    let description = '';
+    if (soThatIdx >= 0) {
+        description = text.slice(soThatIdx).replace(/^So that\s+.+\n?/i, '').trim();
+    }
 
     return {
-        as_a: asAMatch ? htmlToText(asAMatch[1]) : '',
-        i_want: iWantMatch ? htmlToText(iWantMatch[1]) : '',
-        so_that: soThatMatch ? htmlToText(soThatMatch[1]) : '',
+        as_a: asAMatch?.[1]?.trim() ?? '',
+        i_want: iWantMatch?.[1]?.trim() ?? '',
+        so_that: soThatMatch?.[1]?.trim() ?? '',
         description,
     };
 }
@@ -367,7 +397,7 @@ function parseAdoAcHtml(html: string): string[] {
     if (!html.trim()) { return []; }
     const matches = [...html.matchAll(/<pre>([\s\S]*?)<\/pre>/gi)];
     if (matches.length > 0) {
-        return matches.map((m) => m[1].trim()).filter(Boolean);
+        return matches.map((m) => unescapeAdoHtml(m[1].trim())).filter(Boolean);
     }
     // Fallback: treat the whole thing as one AC item
     return [htmlToText(html).trim()].filter(Boolean);

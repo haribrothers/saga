@@ -200,13 +200,30 @@ function storyPointsPath(cfg: AdoConfig): string {
     return `/fields/${cfg.storyPointsFieldId ?? 'Microsoft.VSTS.Scheduling.StoryPoints'}`;
 }
 
+/**
+ * Escape text destined for an ADO rich-text (HTML-typed) field. ADO's
+ * System.Description / Microsoft.VSTS.Common.AcceptanceCriteria fields are
+ * HTML, so unescaped `<`, `>`, `&` in Gherkin/user-story text (e.g.
+ * "Given the count < 5") would either be misinterpreted as markup or
+ * re-encoded unpredictably by ADO's server on save — either way producing
+ * a permanent fetch-time mismatch against the original text. Escaping on
+ * push and unescaping on fetch (see unescapeAdoHtml in ado.ts) keeps the
+ * round trip exact regardless of what characters the content contains.
+ */
+export function escapeAdoHtml(text: string): string {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 export function toAdoEpicPatch(epic: Epic, cfg: AdoConfig): AdoPatchOperation[] {
     const ops: AdoPatchOperation[] = [
         { op: 'add', path: '/fields/System.Title', value: epic.title },
         {
             op: 'add',
             path: '/fields/System.Description',
-            value: epic.description ?? '',
+            value: escapeAdoHtml(epic.description ?? ''),
         },
     ];
 
@@ -228,14 +245,14 @@ export function toAdoStoryPatch(
     epicWorkItemId?: number,
 ): AdoPatchOperation[] {
     const description = [
-        `<p><strong>As a</strong> ${story.as_a}</p>`,
-        `<p><strong>I want</strong> ${story.i_want}</p>`,
-        `<p><strong>So that</strong> ${story.so_that}</p>`,
-        story.description ? `<p>${story.description}</p>` : '',
+        `<p><strong>As a</strong> ${escapeAdoHtml(story.as_a)}</p>`,
+        `<p><strong>I want</strong> ${escapeAdoHtml(story.i_want)}</p>`,
+        `<p><strong>So that</strong> ${escapeAdoHtml(story.so_that)}</p>`,
+        story.description ? `<p>${escapeAdoHtml(story.description)}</p>` : '',
     ].filter(Boolean).join('\n');
 
     const acHtml = story.acceptance_criteria
-        .map((ac) => `<pre>${ac}</pre>`)
+        .map((ac) => `<pre>${escapeAdoHtml(ac)}</pre>`)
         .join('\n');
 
     const ops: AdoPatchOperation[] = [
