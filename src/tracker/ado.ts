@@ -1,6 +1,6 @@
 import { Epic, Story, Subtask } from '../schema';
 import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
-import { hashEpic, hashStory, hashComparableSubtask } from './hash';
+import { hashEpic, hashComparableStory, hashComparableSubtask } from './hash';
 import { AdoConfig, toAdoEpicPatch, toAdoStoryPatch, toAdoSubtaskPatch } from './field-mapping';
 
 // ─── ADO work item response shape (minimal) ───────────────────────────────────
@@ -84,7 +84,7 @@ export class AdoAdapter implements TrackerAdapter {
     async pushStory(story: Story, epicRemoteKey?: string): Promise<PushResult> {
         const epicId = epicRemoteKey !== undefined ? Number(epicRemoteKey) : undefined;
         const patch = toAdoStoryPatch(story, this.cfg, this.orgUrl, epicId);
-        const hash = hashStory(story);
+        const hash = hashComparableStory(story);
 
         let workItem: AdoWorkItem;
 
@@ -308,9 +308,26 @@ export class AdoAdapter implements TrackerAdapter {
 
 // ─── ADO HTML parsing helpers ─────────────────────────────────────────────────
 
-/** Strip HTML tags to get plain text. Used for description comparison. */
+/**
+ * Strip HTML tags to get plain text. Used for description comparison.
+ *
+ * Converts block-level boundaries (</p>, </div>, <br>) to newlines BEFORE
+ * stripping remaining tags, and only collapses horizontal whitespace (spaces/
+ * tabs) rather than all whitespace — a plain `\s+` -> ' ' collapse destroys
+ * every newline in a pushed multi-line description (ADO's rich-text field
+ * often round-trips literal '\n' verbatim when no HTML was ever present),
+ * which makes hashRemoteEpic()/hashRemoteStory() permanently disagree with
+ * hashEpic()/hashStory() even with zero real edits.
+ */
 function htmlToText(html: string): string {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return html
+        .replace(/<\/(p|div)>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 }
 
 /**

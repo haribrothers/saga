@@ -7,7 +7,7 @@ import {
     StorySyncState,
     SubtaskSyncState,
 } from '../tracker/sync-engine';
-import { hashEpic, hashStory, hashComparableSubtask, hashRemoteEpic, hashRemoteStory } from '../tracker/hash';
+import { hashEpic, hashComparableStory, hashRemoteEpic, hashRemoteStory, hashRemoteSubtask } from '../tracker/hash';
 import { setMapping } from '../tracker/sync-store';
 import { writeEpic, writeStory, readStory, getSagaRoot } from '../saga-repo';
 import { clearConflicts } from '../tracker/conflicts-store';
@@ -212,10 +212,14 @@ export class SyncReviewPanel {
                         local_hash: undefined,
                         remote: undefined,
                     });
-                    const writtenHash = hashEpic(parsedEpic);
+                    // The stored baseline must equal what hashRemoteEpic() recomputes from
+                    // this same `remote` on the next sync pass — not a hash of `parsedEpic`,
+                    // which may contain a local fallback wherever remote text was empty (see
+                    // the identical fix on the story pull path above for the full rationale).
+                    const writtenHash = hashRemoteEpic(remote, parsedEpic.id);
                     const updated: Epic = {
                         ...parsedEpic,
-                        local_hash: writtenHash,
+                        local_hash: hashEpic(parsedEpic),
                         remote: {
                             provider,
                             key: remote.key,
@@ -271,7 +275,7 @@ export class SyncReviewPanel {
                     const updated: Story = {
                         ...local,
                         remote: result.remoteRef,
-                        local_hash: hashStory(local),
+                        local_hash: hashComparableStory(local),
                     };
                     await writeStory(sagaRoot, updated);
                     await setMapping(sagaRoot, sagaId, provider, {
@@ -313,11 +317,22 @@ export class SyncReviewPanel {
                         local_hash: undefined,  // exclude from hash computation
                         remote: undefined,       // exclude from hash computation
                     });
-                    // Hash the canonical fields exactly as they'll be stored on disk.
-                    const writtenHash = hashStory(parsed);
+                    // The stored sync baseline must equal exactly what hashRemoteStory()
+                    // will recompute from this same `remote` on the NEXT sync pass —
+                    // not a hash of `parsed`, which may contain local fallback values
+                    // (as_a/i_want/so_that/description/AC) substituted wherever the
+                    // tracker's round-tripped text parsed empty. Hashing `parsed` instead
+                    // of `remote` directly is what made every synced item look permanently
+                    // "changed" even with zero further edits — remote never re-derives to
+                    // the local fallback value, so the recorded baseline never matched the
+                    // next fetch. If a fallback was applied here, local_hash (below) will
+                    // legitimately differ from this baseline once — shown as one-off local
+                    // drift — until the next push/pull reconciles it, which is correct: the
+                    // written content doesn't perfectly represent the tracker's current state.
+                    const writtenHash = hashRemoteStory(remote, parsed.id, parsed.epic);
                     const updatedStory: Story = {
                         ...parsed,
-                        local_hash: writtenHash,
+                        local_hash: hashComparableStory(parsed),
                         // Preserve the remote key/provider so future pushes take the update path.
                         remote: {
                             provider,
@@ -344,7 +359,7 @@ export class SyncReviewPanel {
                     const updated: Story = {
                         ...local,
                         remote: result.remoteRef,
-                        local_hash: hashStory(local),
+                        local_hash: hashComparableStory(local),
                     };
                     await writeStory(sagaRoot, updated);
                     await setMapping(sagaRoot, sagaId, provider, {
@@ -410,6 +425,13 @@ export class SyncReviewPanel {
                         const remote = remoteSubtasksMap.get(res.sagaId);
                         if (!remote) { continue; }
                         const syncedAt = new Date().toISOString();
+                        // Hash the raw `remote` object for the stored baseline — not the
+                        // fallback-substituted title — so it matches exactly what
+                        // hashRemoteSubtask() recomputes from the same remote on the next
+                        // sync pass. Same fix as the story/epic pull paths above; hashing
+                        // the fallback object here would make every subtask with an empty
+                        // remote title show spurious drift/conflict forever.
+                        const writtenHash = hashRemoteSubtask(remote, local.id);
                         const updated: Subtask = {
                             ...local,
                             title: remote.title || local.title,
@@ -418,7 +440,7 @@ export class SyncReviewPanel {
                                 provider,
                                 key: remote.key,
                                 url: remote.url,
-                                last_synced_hash: hashComparableSubtask({ id: local.id, title: remote.title || local.title, done: remote.done }),
+                                last_synced_hash: writtenHash,
                                 last_synced_at: syncedAt,
                             },
                         };
@@ -426,7 +448,7 @@ export class SyncReviewPanel {
                         await setMapping(sagaRoot, res.sagaId, provider, {
                             key: remote.key,
                             url: remote.url,
-                            last_synced_hash: updated.remote!.last_synced_hash!,
+                            last_synced_hash: writtenHash,
                             last_synced_at: syncedAt,
                         });
                         applied++;

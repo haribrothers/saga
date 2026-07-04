@@ -1,6 +1,6 @@
 import { Epic, Story, Subtask } from '../schema';
 import { TrackerAdapter, PushResult, ConnectionTestResult, TrackerError, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
-import { hashEpic, hashStory, hashComparableSubtask } from './hash';
+import { hashEpic, hashComparableStory, hashComparableSubtask } from './hash';
 import {
     JiraConfig,
     toJiraEpicFields,
@@ -89,7 +89,7 @@ export class JiraAdapter implements TrackerAdapter {
         // 400 errors on projects where the field isn't on the create screen.
         const spField = this.cfg.storyPointsFieldId ?? STORY_POINTS_FIELD;
         const fields = toJiraStoryFields(story, this.cfg, epicRemoteKey, spField);
-        const hash = hashStory(story);
+        const hash = hashComparableStory(story);
 
         let key: string;
         let url: string;
@@ -359,9 +359,13 @@ function extractText(nodes: AdfNode[]): string {
     return nodes.map((node) => {
         if (node.type === 'text') { return node.text ?? ''; }
         const inner = extractText(node.content ?? []);
-        // Add a newline after block-level nodes so paragraphs separate naturally
+        // toAdf() splits markdown into one paragraph node per blank-line-separated
+        // block, so reconstructing with a blank line (not a single newline) between
+        // block-level nodes is required for the round-trip to be hash-stable —
+        // otherwise every multi-paragraph description permanently hashes differently
+        // after a push+fetch cycle even with zero real edits.
         const isBlock = ['paragraph', 'heading', 'listItem', 'codeBlock', 'blockquote'].includes(node.type);
-        return isBlock ? inner + '\n' : inner;
+        return isBlock ? inner + '\n\n' : inner;
     }).join('');
 }
 

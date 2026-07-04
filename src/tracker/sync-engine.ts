@@ -1,7 +1,7 @@
 import { Epic, Story, Subtask } from '../schema';
 import { TrackerAdapter, RemoteEpic, RemoteStory, RemoteSubtask } from './adapter';
 import { RemoteMapping, readMappings } from './sync-store';
-import { hashEpic, hashStory, hashComparableSubtask, hashRemoteEpic, hashRemoteStory, hashRemoteSubtask } from './hash';
+import { hashEpic, hashComparableStory, hashComparableSubtask, hashRemoteEpic, hashRemoteStory, hashRemoteSubtask } from './hash';
 import * as vscode from 'vscode';
 
 // ─── Sync state classification ────────────────────────────────────────────────
@@ -184,7 +184,13 @@ function classifyEpic(
     remote: RemoteEpic,
     mapping: RemoteMapping | undefined,
 ): EpicSyncState {
-    const localHash = local.local_hash ?? hashEpic(local);
+    // Always recompute rather than trusting local.local_hash from disk — a
+    // stored value may have been written by a since-changed hash function
+    // (e.g. a canonical-field-set fix), which would make it permanently
+    // incomparable to a freshly-computed baseHash/remoteHash even with no
+    // real edit. Recomputing is cheap (hashing an in-memory object) and
+    // makes stale on-disk hashes irrelevant to classification.
+    const localHash = hashEpic(local);
     const remoteHash = hashRemoteEpic(remote, local.id);
     const baseHash = mapping?.last_synced_hash ?? local.remote?.last_synced_hash;
 
@@ -208,7 +214,8 @@ function classifyStory(
     remote: RemoteStory,
     mapping: RemoteMapping | undefined,
 ): StorySyncState {
-    const localHash = local.local_hash ?? hashStory(local);
+    // Always recompute — see the identical comment on classifyEpic above.
+    const localHash = hashComparableStory(local);
     const remoteHash = hashRemoteStory(remote, local.id, local.epic);
     const baseHash = mapping?.last_synced_hash ?? local.remote?.last_synced_hash;
 

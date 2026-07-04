@@ -23,7 +23,7 @@ import { SettingsPanel } from './webview/settings-panel';
 import { GenerationReviewPanel } from './webview/generation-review-panel';
 import { resolveProviderFromConfig } from './llm/routing';
 import { buildTrackerAdapter } from './tracker/factory';
-import { hashEpic, hashStory } from './tracker/hash';
+import { hashEpic, hashComparableStory } from './tracker/hash';
 import { setMapping, readMappings, writeMappings } from './tracker/sync-store';
 import { buildSyncPlan } from './tracker/sync-engine';
 import { writeConflicts } from './tracker/conflicts-store';
@@ -764,7 +764,7 @@ export async function activate(context: vscode.ExtensionContext) {
             ...story,
             status: 'synced',
             remote: result.remoteRef,
-            local_hash: hashStory(story),
+            local_hash: hashComparableStory(story),
         });
         await setMapping(sagaRoot, storyId, adapter.provider, {
             key: result.remoteRef.key,

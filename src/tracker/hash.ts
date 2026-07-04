@@ -20,6 +20,15 @@ export function hashEpic(epic: Epic): string {
     return sha256(canonical);
 }
 
+/**
+ * Includes `subtasks`, unlike hashComparableStory()/hashRemoteStory(). NOT used
+ * for anything that gets stored as `local_hash`/`remote.last_synced_hash` or
+ * compared against a tracker — a subtask has no story-level remote equivalent
+ * (it's pushed/compared as its own independent tracker item, see
+ * hashComparableSubtask/hashRemoteSubtask), so a hash including it can never
+ * match hashRemoteStory()'s output. Kept for any future purely-local "has
+ * anything about this story changed at all" use case.
+ */
 export function hashStory(story: Story): string {
     const canonical = {
         id: story.id,
@@ -33,6 +42,36 @@ export function hashStory(story: Story): string {
         estimate: story.estimate ?? null,
         labels: [...(story.labels ?? [])].sort(),
         subtasks: (story.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, type: s.type, done: s.done })),
+    };
+    return sha256(canonical);
+}
+
+/**
+ * Hash of only the story fields that round-trip through a tracker — i.e. the
+ * same canonical set as hashRemoteStory(). Excludes `subtasks`, which have no
+ * story-level equivalent on the remote (subtasks are pushed/compared as their
+ * own tracker items via hashComparableSubtask/hashRemoteSubtask).
+ *
+ * This is the hash that must be stored as `local_hash` and `remote.last_synced_hash`
+ * for tracker push/pull/sync — using hashStory() (which includes subtasks) there
+ * would make local_hash and last_synced_hash structurally incomparable to
+ * hashRemoteStory(), guaranteeing a false "changed" result on every sync pass
+ * regardless of any real edit.
+ */
+export function hashComparableStory(story: Pick<Story,
+    'id' | 'title' | 'epic' | 'as_a' | 'i_want' | 'so_that' | 'description' | 'acceptance_criteria' | 'estimate' | 'labels'
+>): string {
+    const canonical = {
+        id: story.id,
+        title: story.title,
+        epic: story.epic,
+        as_a: story.as_a,
+        i_want: story.i_want,
+        so_that: story.so_that,
+        description: story.description ?? '',
+        acceptance_criteria: story.acceptance_criteria,
+        estimate: story.estimate ?? null,
+        labels: [...(story.labels ?? [])].sort(),
     };
     return sha256(canonical);
 }
@@ -83,7 +122,10 @@ export function hashRemoteEpic(remote: RemoteEpic, sagaId: string): string {
 }
 
 /**
- * Hash a RemoteStory using the same canonical field set as hashStory().
+ * Hash a RemoteStory using the same canonical field set as hashComparableStory()
+ * (NOT hashStory(), which additionally includes `subtasks` — a field with no
+ * remote equivalent here). Always compare this against hashComparableStory()'s
+ * output, never hashStory()'s, or every sync pass will show a false mismatch.
  * `sagaId` and `epicSagaId` must be provided since they're not present on the
  * remote object but are part of the canonical hash for local stories.
  */

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Epic, Story, StoryStatus, Subtask } from '../schema';
 import { listEpics, listStories } from '../saga-repo';
-import { hashEpic, hashStory } from '../tracker/hash';
+import { hashEpic, hashComparableStory, hashComparableSubtask } from '../tracker/hash';
 import { readConflicts } from '../tracker/conflicts-store';
 
 // ─── Tree item types ──────────────────────────────────────────────────────────
@@ -213,12 +213,24 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextFileI
  * Computes the effective display status for a story, accounting for local drift.
  * A story with a remote key whose local content has changed since last sync is
  * shown as "drifted" rather than "synced", even if story.status === 'synced'.
+ *
+ * Compares against hashComparableStory() (not hashStory()) since that's the
+ * hash shape actually stored in remote.last_synced_hash by push/pull — hashStory()
+ * additionally includes `subtasks`, which have no story-level remote equivalent
+ * and would make this comparison permanently mismatch. Subtask drift is instead
+ * checked separately below, per-subtask against its own last_synced_hash, since
+ * a pushed subtask is its own independent tracker item (M5.1).
  */
 function storyEffectiveStatus(story: Story): StoryStatus | 'drifted' {
     if (story.status === 'synced' && story.remote?.last_synced_hash) {
-        const currentHash = hashStory(story);
+        const currentHash = hashComparableStory(story);
         if (currentHash !== story.remote.last_synced_hash) {
             return 'drifted';
+        }
+        for (const sub of story.subtasks) {
+            if (sub.remote?.last_synced_hash && hashComparableSubtask(sub) !== sub.remote.last_synced_hash) {
+                return 'drifted';
+            }
         }
     }
     return story.status;
