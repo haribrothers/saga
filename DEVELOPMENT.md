@@ -96,6 +96,31 @@ Publishing is a real, externally-visible action — don't run this casually. Con
    vsce publish --packagePath saga-<version>.vsix
    ```
 
+## Automated releases (`.github/workflows/release.yml`)
+
+Pushing a version tag builds the `.vsix` and creates a GitHub Release automatically — no need to run `vsce package` by hand for a release.
+
+**To cut a release:**
+
+```bash
+# 1. Bump the version in package.json (e.g. "0.1.0") and update CHANGELOG.md
+git add package.json CHANGELOG.md
+git commit -m "chore: bump version to 0.1.0"
+
+# 2. Tag it (must match package.json's version, prefixed with "v") and push
+git tag v0.1.0
+git push origin main --tags
+```
+
+The workflow then:
+
+1. Fails fast if the `v*` tag doesn't match `package.json`'s `version` field.
+2. Runs `vsce package` (production build via `vscode:prepublish`) to produce `saga-<tag>.vsix`.
+3. Creates a GitHub Release for the tag, attaches the `.vsix`, and auto-generates release notes from commits/PRs since the last tag.
+4. If a `VSCE_PAT` repository secret is set, also runs `vsce publish` to push the same build to the Marketplace. If the secret isn't set, this step is skipped (not failed) — useful before the `haribrothers` publisher is registered.
+
+To enable Marketplace publishing from CI once the publisher is registered: generate a PAT with Marketplace **Manage** scope, then add it as a repo secret named `VSCE_PAT` (Settings → Secrets and variables → Actions → New repository secret). No workflow changes needed.
+
 ## Documentation site (`docs-site/`)
 
 The docs site at [haribrothers.github.io/saga](https://haribrothers.github.io/saga/) is a separate VitePress project under `docs-site/`, with its own `package.json`.
