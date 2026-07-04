@@ -151,6 +151,12 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "saga.openDocumentation",
+        "title": "Open Documentation",
+        "category": "Saga",
+        "icon": "$(question)"
+      },
+      {
         "command": "saga.moreActions",
         "title": "More Actions",
         "category": "Saga",
@@ -294,6 +300,11 @@
           "group": "navigation@5"
         },
         {
+          "command": "saga.openDocumentation",
+          "when": "view == saga.storiesView",
+          "group": "navigation@6"
+        },
+        {
           "command": "saga.openSettings",
           "when": "view == saga.contextView",
           "group": "navigation"
@@ -301,7 +312,7 @@
         {
           "submenu": "saga.moreActionsMenu",
           "when": "view == saga.storiesView",
-          "group": "navigation@6"
+          "group": "navigation@7"
         }
       ],
       "saga.moreActionsMenu": [

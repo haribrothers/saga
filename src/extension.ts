@@ -1804,6 +1804,11 @@ export async function activate(context: vscode.ExtensionContext) {
         await SettingsPanel.open(root, context.extensionUri, secrets);
     });
 
+    // ── saga.openDocumentation ─────────────────────────────────────────────────
+    const openDocumentationCmd = vscode.commands.registerCommand('saga.openDocumentation', async () => {
+        await vscode.env.openExternal(vscode.Uri.parse('https://haribrothers.github.io/saga/'));
+    });
+
     // ── saga.moreActions (F38) ────────────────────────────────────────────────
     const moreActionsCmd = vscode.commands.registerCommand('saga.moreActions', async () => {
         const items: Array<{ label: string; description: string; command: string }> = [
@@ -1882,6 +1887,7 @@ export async function activate(context: vscode.ExtensionContext) {
         resetTemplateCmd,
         openContextFileCmd,
         openSettingsCmd,
+        openDocumentationCmd,
         moreActionsCmd,
         testGenCmd,
     );

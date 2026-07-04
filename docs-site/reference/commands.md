@@ -26,6 +26,7 @@ All commands are grouped under the **Saga** category in the Command Palette (`Cm
 | `Push All to Tracker` | Command Palette + Epics & Stories view toolbar (`↑ Push All`) |
 | `Sync with Tracker` | Command Palette + Epics & Stories view toolbar (`$(sync)`) |
 | `Open Settings` | Command Palette + Epics & Stories view toolbar |
+| `Open Documentation` | Command Palette + Epics & Stories view toolbar (`$(question)`) — opens this site in your browser |
 | `More Actions` | Epics & Stories view toolbar (`$(ellipsis)`) — opens a QuickPick for orphaned commands |
 | `Generate Agent Prompt` | Story right-click context menu |
 | `Generate AGENTS.md` | Command Palette + Epics & Stories view toolbar |
