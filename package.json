@@ -2,7 +2,7 @@
   "name": "saga",
   "displayName": "Saga",
   "description": "AI-generated, INVEST-compliant agile stories synced with Jira/Azure DevOps and version-controlled next to your code.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "haribrothers",
   "icon": "resources/icon.png",
   "repository": {
