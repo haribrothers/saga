@@ -91,6 +91,10 @@ Saga sends context you explicitly register (files or typed notes) to your chosen
 - A workspace folder open (Saga is workspace-scoped).
 - One AI provider configured — Copilot (via the built-in VS Code LM API) works out of the box if you have a Copilot subscription; everything else requires your own API key.
 
+## Contributing
+
+Setting up the repo for development, build/package/publish commands, and running tests — see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Feedback
 
 Found a bug or have a feature request? Please open an issue on the repository.
