@@ -10,6 +10,7 @@ All notable changes to the Saga extension are documented here. Saga hasn't cut a
 - Consistent spacing and visual grouping across all settings and review panels.
 
 ### Code loop
+- Edit an epic's title, description, or labels at any time from the sidebar tree. If the change could affect existing stories, Saga offers to regenerate them — either alongside the existing ones or as a full replacement.
 - Story splitting: split an oversized story into 2–3 smaller replacements, reviewed before saving.
 - Getting Started onboarding panel, opened after Init.
 - Anonymous local usage logging, off by default, no network calls.

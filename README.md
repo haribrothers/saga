@@ -29,6 +29,8 @@ Saga sits where your code already lives. It reads the documents you already have
 ### Generate epics and stories
 Select context files (product briefs, technical designs, standards docs), and Saga generates epics, then INVEST-compliant stories per epic — each with an `As a / I want / So that` statement, Gherkin acceptance criteria (happy path + edge case), and a story-point estimate. Review, edit, re-validate, or ask for a refinement pass before saving.
 
+Click any epic in the tree any time afterward to edit its title, description, or labels. If the change could affect existing stories, Saga offers to regenerate them — adding new stories alongside the existing ones, or replacing them outright once you confirm.
+
 ### Subtasks and story splitting
 Break a story into a checklist of typed subtasks (task / test / chore), or split an oversized story (one that fails the INVEST "Small" check) into 2–3 smaller replacements — both AI-proposed, both reviewed before anything is saved.
 
